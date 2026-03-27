@@ -1,0 +1,242 @@
+"""Mission Control Daemon — main entry point.
+
+Lightweight Python daemon that handles deterministic work (polling,
+reminders, scheduling) and invokes the LLM only when intelligence
+is needed.
+"""
+
+import os
+import sys
+import time
+import signal
+import argparse
+from datetime import datetime
+
+from .config import load_config, Config
+from .channels.slack import SlackChannel
+from .llm.claude_cli import ClaudeCLI
+from .llm.base import LLMBridge
+from .reminder_engine import ReminderEngine
+from .cross_tasks import CrossTaskChecker
+from .scheduler import Scheduler
+from .context_builder import build_prompt
+from .file_updater import apply_updates
+
+
+def create_channel(config: Config):
+    """Create the appropriate channel client based on config."""
+    if config.channel_provider == "slack":
+        state_file = os.path.join(config.notes_folder, ".mc-state.json")
+        return SlackChannel(
+            bot_token=config.slack_bot_token,
+            channel_id=config.slack_channel_id,
+            state_file=state_file,
+        )
+    else:
+        raise ValueError(f"Unknown channel provider: {config.channel_provider}")
+
+
+def create_llm(config: Config) -> LLMBridge:
+    """Create the appropriate LLM bridge based on config."""
+    if config.llm_provider == "claude-cli":
+        return ClaudeCLI(timeout=180)
+    else:
+        raise ValueError(f"Unknown LLM provider: {config.llm_provider}")
+
+
+def run_operation(
+    llm: LLMBridge,
+    channel,
+    config: Config,
+    operation: str,
+    user_message: str = "",
+):
+    """Run an LLM-powered operation and post results.
+
+    This is the only function that invokes the LLM. Everything else
+    in the daemon is pure code.
+    """
+    # Build Slack history context for operations that need it
+    slack_history = ""
+    if operation in ("midday_checkin", "afternoon_checkin", "eod_summary"):
+        recent = channel.get_recent_history(limit=20)
+        slack_history = "\n".join(
+            f"{'[bot]' if m.is_bot else '[user]'}: {m.text}"
+            for m in reversed(recent)
+        )
+
+    # Build the prompt with only relevant state files
+    prompt = build_prompt(
+        notes_folder=config.notes_folder,
+        operation=operation,
+        user_message=user_message,
+        slack_history=slack_history,
+    )
+
+    # Invoke the LLM
+    print(f"[daemon] Invoking LLM for: {operation}")
+    raw_response = llm.invoke(prompt)
+
+    if not raw_response:
+        print(f"[daemon] Empty response from LLM for: {operation}")
+        return
+
+    # Parse structured response
+    response = llm.parse_response(raw_response)
+
+    # Post to channel
+    if response.slack_message:
+        channel.post(response.slack_message)
+
+    # Apply file updates
+    if response.file_updates:
+        updated = apply_updates(response, config.notes_folder)
+        print(f"[daemon] Applied {updated} file update(s)")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Mission Control Daemon")
+    parser.add_argument(
+        "--config", "-c",
+        help="Path to .mc-config.json",
+        default=None,
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run one cycle and exit (for testing)",
+    )
+    args = parser.parse_args()
+
+    # Load configuration
+    config = load_config(args.config)
+    print(f"[daemon] Mission Control for {config.user_name}")
+    print(f"[daemon] Notes: {config.notes_folder}")
+    print(f"[daemon] Channel: {config.channel_provider} ({config.slack_channel_name})")
+    print(f"[daemon] LLM: {config.llm_provider}")
+
+    # Create components
+    channel = create_channel(config)
+    llm = create_llm(config)
+    reminders = ReminderEngine(config.notes_folder)
+    scheduler = Scheduler(config.timezone)
+
+    # Cross-tasks (optional)
+    cross_tasks = None
+    if config.features.family:
+        cross_tasks_path = os.path.join(
+            os.path.dirname(config.notes_folder), "cross-tasks.json"
+        )
+        cross_tasks = CrossTaskChecker(cross_tasks_path, config.user_name)
+
+    # Register scheduled operations
+    if config.features.dispatch:
+        scheduler.daily(
+            config.dispatch_time,
+            lambda: run_operation(llm, channel, config, "morning_dispatch"),
+            weekdays_only=True,
+            name="Morning Dispatch",
+        )
+    if config.features.midday:
+        scheduler.daily(
+            config.midday_time,
+            lambda: run_operation(llm, channel, config, "midday_checkin"),
+            weekdays_only=True,
+            name="Midday Check-in",
+        )
+    if config.features.afternoon:
+        scheduler.daily(
+            config.afternoon_time,
+            lambda: run_operation(llm, channel, config, "afternoon_checkin"),
+            weekdays_only=True,
+            name="Afternoon Check-in",
+        )
+    if config.features.eod:
+        scheduler.daily(
+            config.eod_time,
+            lambda: run_operation(llm, channel, config, "eod_summary"),
+            weekdays_only=True,
+            name="EOD Summary",
+        )
+    if config.features.weekly_review:
+        scheduler.weekly(
+            "friday",
+            config.eod_time,
+            lambda: run_operation(llm, channel, config, "weekly_review"),
+            name="Friday Weekly Review",
+        )
+    if config.features.weekly_plan:
+        scheduler.weekly(
+            "sunday",
+            config.weekly_plan_time,
+            lambda: run_operation(llm, channel, config, "weekly_planning"),
+            name="Sunday Weekly Planning",
+        )
+
+    # Graceful shutdown
+    running = True
+
+    def handle_signal(signum, frame):
+        nonlocal running
+        print(f"\n[daemon] Received signal {signum}, shutting down...")
+        running = False
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    # Polling intervals
+    REMINDER_INTERVAL = 60       # Check reminders every 60s
+    DAY_POLL_INTERVAL = 300      # Check messages every 5 min (daytime)
+    NIGHT_POLL_INTERVAL = 900    # Check messages every 15 min (night)
+
+    last_reminder_check = 0
+    last_message_check = 0
+
+    print("[daemon] Starting main loop...")
+
+    # Main loop
+    while running:
+        now = time.time()
+
+        # 1. Fire due reminders (every minute)
+        if now - last_reminder_check >= REMINDER_INTERVAL:
+            reminders.check_and_fire(channel)
+            last_reminder_check = now
+
+        # 2. Check for new messages (5 min day / 15 min night)
+        is_day = scheduler.is_daytime(config.wake_time, config.sleep_time)
+        poll_interval = DAY_POLL_INTERVAL if is_day else NIGHT_POLL_INTERVAL
+
+        if now - last_message_check >= poll_interval:
+            new_msg = channel.check_for_new_message()
+            if new_msg:
+                # Acknowledge immediately
+                channel.post("Got it — working on this now")
+                # Invoke LLM for response
+                run_operation(
+                    llm, channel, config,
+                    "message_response",
+                    user_message=new_msg.text,
+                )
+            last_message_check = now
+
+        # 3. Run scheduled operations
+        scheduler.run_pending()
+
+        # 4. Check cross-tasks (if family extension enabled)
+        if cross_tasks:
+            cross_tasks.check_and_notify(channel)
+
+        # For --once mode (testing)
+        if args.once:
+            print("[daemon] --once mode, exiting after first cycle")
+            break
+
+        # Sleep briefly to avoid busy-waiting
+        time.sleep(10)
+
+    print("[daemon] Stopped.")
+
+
+if __name__ == "__main__":
+    main()
