@@ -425,126 +425,8 @@ collect_profile() {
     print_success "Notes folder: $NOTES_FOLDER"
 }
 
-# ─── Step 7: Schedule ───────────────────────────────────────────────
-
-collect_schedule() {
-    print_step "Step 7: Daily Schedule"
-
-    echo "  All times in 24h format (e.g., 07:30)"
-    echo ""
-
-    ask_default "Wake time:" "07:30" WAKE_TIME
-    ask_default "Sleep time:" "23:00" SLEEP_TIME
-    ask_default "Work hours start:" "09:00" WORK_START
-    ask_default "Work hours end:" "17:00" WORK_END
-
-    # Deep work blocks
-    echo ""
-    echo "  Deep work blocks (up to 3, press Enter to finish):"
-    DEEP_WORK_BLOCKS=""
-    local block_num=1
-    while [[ $block_num -le 3 ]]; do
-        local block_start
-        ask "  Block $block_num start (or Enter to finish):" block_start
-        [[ -z "$block_start" ]] && break
-        local block_end
-        ask "  Block $block_num end:" block_end
-        DEEP_WORK_BLOCKS="${DEEP_WORK_BLOCKS}- **${block_start}-${block_end}** — Deep work block $block_num
-"
-        block_num=$((block_num + 1))
-    done
-    if [[ -z "$DEEP_WORK_BLOCKS" ]]; then
-        DEEP_WORK_BLOCKS="- **${WORK_START}-${WORK_END}** — Main work block
-"
-    fi
-
-    # Fixed commitments
-    echo ""
-    echo "  Fixed daily commitments (press Enter to finish):"
-    FIXED_COMMITMENTS=""
-    while true; do
-        local commitment
-        ask "  Commitment (or Enter to finish):" commitment
-        [[ -z "$commitment" ]] && break
-        FIXED_COMMITMENTS="${FIXED_COMMITMENTS}- ${commitment}
-"
-    done
-    if [[ -z "$FIXED_COMMITMENTS" ]]; then
-        FIXED_COMMITMENTS="_(none configured)_
-"
-    fi
-
-    # Off-limits times
-    echo ""
-    echo "  Off-limits times — no notifications (press Enter to finish):"
-    OFF_LIMITS=""
-    while true; do
-        local period
-        ask "  Off-limits period (or Enter to finish):" period
-        [[ -z "$period" ]] && break
-        OFF_LIMITS="${OFF_LIMITS}- ${period}
-"
-    done
-    if [[ -z "$OFF_LIMITS" ]]; then
-        OFF_LIMITS="_(none configured)_
-"
-    fi
-
-    print_success "Schedule configured"
-}
-
-# ─── Step 8: Workstreams ────────────────────────────────────────────
-
-collect_workstreams() {
-    print_step "Step 8: Workstreams"
-
-    echo "  Add your projects (1-6). Press Enter to finish."
-    echo ""
-
-    WORKSTREAM_COUNT=0
-    WORKSTREAM_NAMES=()
-    WORKSTREAM_PRIORITIES=()
-    WORKSTREAM_PHASES=()
-    WORKSTREAM_LEVELS=()
-
-    while [[ $WORKSTREAM_COUNT -lt 6 ]]; do
-        local num=$((WORKSTREAM_COUNT + 1))
-        local ws_name
-        ask "Workstream $num name (or Enter to finish):" ws_name
-        [[ -z "$ws_name" ]] && break
-
-        local ws_priority ws_phase ws_level
-        ask_default "  Priority (1=highest):" "$num" ws_priority
-        ask_default "  Phase (planning/active/maintenance):" "active" ws_phase
-        ask_default "  Cognitive level (L1/L2/L3/L1-L2):" "L1-L2" ws_level
-        echo ""
-
-        WORKSTREAM_NAMES+=("$ws_name")
-        WORKSTREAM_PRIORITIES+=("$ws_priority")
-        WORKSTREAM_PHASES+=("$ws_phase")
-        WORKSTREAM_LEVELS+=("$ws_level")
-        WORKSTREAM_COUNT=$((WORKSTREAM_COUNT + 1))
-    done
-
-    if [[ $WORKSTREAM_COUNT -eq 0 ]]; then
-        print_warning "No workstreams added. Creating 'General'."
-        WORKSTREAM_NAMES=("General")
-        WORKSTREAM_PRIORITIES=("1")
-        WORKSTREAM_PHASES=("active")
-        WORKSTREAM_LEVELS=("L1-L2")
-        WORKSTREAM_COUNT=1
-    fi
-
-    WORKSTREAM_PRIORITY_ORDER=""
-    for name in "${WORKSTREAM_NAMES[@]}"; do
-        if [[ -n "$WORKSTREAM_PRIORITY_ORDER" ]]; then
-            WORKSTREAM_PRIORITY_ORDER+=" > "
-        fi
-        WORKSTREAM_PRIORITY_ORDER+="$name"
-    done
-
-    print_success "Workstreams: $WORKSTREAM_PRIORITY_ORDER"
-}
+# ─── (Steps 7-8 removed — schedule and workstreams are now set up
+# ─── conversationally by the AI during first run. See framework/Getting Started.md)
 
 # ─── Step 9: Features ───────────────────────────────────────────────
 
@@ -660,145 +542,46 @@ apply_conditionals() {
 }
 
 generate_files() {
-    print_step "Step 11: Generating Files"
+    print_step "Generating Files"
 
-    mkdir -p "$NOTES_FOLDER/skills/mission-control"
+    mkdir -p "$NOTES_FOLDER"
 
-    local core_tpl="$SCRIPT_DIR/templates/core/$LANG_CODE"
-    local prompt_tpl="$SCRIPT_DIR/templates/prompts/$LANG_CODE"
+    local framework_src="$SCRIPT_DIR/framework"
 
-    # Build dynamic content
-    local schedule_table="| Time | Block | Capacity |
-|------|-------|----------|
-| ${WAKE_TIME}-${WORK_START} | Morning routine | L3 only |
-| ${WORK_START}-${WORK_END} | Work hours | L1/L2/L3 |
-| ${WORK_END}-${SLEEP_TIME} | Evening | Variable |"
-
-    local schedule_summary="- Work hours: ${WORK_START}-${WORK_END}
-- Deep work blocks configured in Daily Scaffolding.md"
-
-    local current_week
-    current_week=$(python3 -c "from datetime import date; d=date.today(); print(f'{d.year}-W{d.isocalendar()[1]:02d}')" 2>/dev/null || echo "Current Week")
-
-    # Generate workstream sections
-    local ws_sections=""
-    for i in $(seq 0 $((WORKSTREAM_COUNT - 1))); do
-        local num=$((i + 1))
-        ws_sections="${ws_sections}## ${num}. ${WORKSTREAM_NAMES[$i]}
-- **Phase:** ${WORKSTREAM_PHASES[$i]}
-- **Cognitive Level:** ${WORKSTREAM_LEVELS[$i]}
-- **Status:** In progress
-- **Next Milestone:** _(set during weekly planning)_
-- **Pick-Up Packet:**
-  - _(Add context here for resuming this workstream)_
-- **Decisions Log:**
-  - _(Record key decisions)_
-
-### Pending Tasks
-_(Add tasks: **[LX] Task name** — details)_
-
-### Completed
-_(Format: **[LX] Task name** — Done YYYY-MM-DD)_
-
----
-
-"
+    # Copy all framework files to the user's notes folder
+    for f in "$framework_src"/*.md; do
+        local basename
+        basename=$(basename "$f")
+        if [[ ! -f "$NOTES_FOLDER/$basename" ]]; then
+            cp "$f" "$NOTES_FOLDER/$basename"
+            print_success "$basename"
+        else
+            print_warning "$basename already exists — skipping"
+        fi
     done
 
-    # Weekly goals sections
-    local wg_sections=""
-    for i in $(seq 0 $((WORKSTREAM_COUNT - 1))); do
-        wg_sections="${wg_sections}### ${WORKSTREAM_NAMES[$i]}
-**P1 — Must Do:**
-- [ ] _(add goals during weekly planning)_
-
-**P2 — Should Do:**
-- [ ] _(add goals during weekly planning)_
-
-"
-    done
-
-    # Grocery sections
-    local grocery_sections="## Bulk Store (Costco / Sam's Club)
-_(empty)_
-
-## Regular Grocery
-_(empty)_
-
-## Specialty Grocery
-_(empty)_
-
-## Store-Specific Requests
-_(empty)_"
-
-    local grocery_rules="**Bulk Store**: cleaning supplies, paper goods, bulk items
-**Specialty Grocery**: specialty sauces, ethnic ingredients
-**Regular Grocery** (default): fresh produce, dairy, meat, pantry staples"
-
-    # ── Copy and process files ──
-
-    cp "$core_tpl/cognitive-levels.md" "$NOTES_FOLDER/Cognitive Levels.md"
-    print_success "Cognitive Levels.md"
-
-    cp "$core_tpl/priority-framework.md" "$NOTES_FOLDER/Priority Framework.md"
-    print_success "Priority Framework.md"
-
-    # Daily Scaffolding
-    cp "$core_tpl/daily-scaffolding.md.tpl" "$NOTES_FOLDER/Daily Scaffolding.md"
-    replace_block "$NOTES_FOLDER/Daily Scaffolding.md" "{{SCHEDULE_TABLE}}" "$schedule_table"
-    replace_block "$NOTES_FOLDER/Daily Scaffolding.md" "{{FIXED_COMMITMENTS}}" "$FIXED_COMMITMENTS"
-    replace_block "$NOTES_FOLDER/Daily Scaffolding.md" "{{DEEP_WORK_BLOCKS}}" "$DEEP_WORK_BLOCKS"
-    replace_block "$NOTES_FOLDER/Daily Scaffolding.md" "{{OFF_LIMITS}}" "$OFF_LIMITS"
-    apply_substitutions "$NOTES_FOLDER/Daily Scaffolding.md"
-    print_success "Daily Scaffolding.md"
-
-    # Workstreams
-    cp "$core_tpl/workstreams.md.tpl" "$NOTES_FOLDER/Workstreams.md"
-    replace_block "$NOTES_FOLDER/Workstreams.md" "{{WORKSTREAM_SECTIONS}}" "$ws_sections"
-    apply_substitutions "$NOTES_FOLDER/Workstreams.md"
-    print_success "Workstreams.md"
-
-    # Weekly Goals
-    cp "$core_tpl/weekly-goals.md.tpl" "$NOTES_FOLDER/Weekly Goals.md"
-    replace_block "$NOTES_FOLDER/Weekly Goals.md" "{{WEEKLY_GOALS_SECTIONS}}" "$wg_sections"
-    do_sed "s|{{CURRENT_WEEK_LABEL}}|${current_week}|g" "$NOTES_FOLDER/Weekly Goals.md"
-    apply_substitutions "$NOTES_FOLDER/Weekly Goals.md"
-    print_success "Weekly Goals.md"
-
-    # Grocery (optional)
-    if [[ "$ENABLE_GROCERY" == true ]]; then
-        cp "$core_tpl/grocery-list.md.tpl" "$NOTES_FOLDER/Grocery List.md"
-        replace_block "$NOTES_FOLDER/Grocery List.md" "{{GROCERY_SECTIONS}}" "$grocery_sections"
-        replace_block "$NOTES_FOLDER/Grocery List.md" "{{GROCERY_RULES}}" "$grocery_rules"
-        apply_substitutions "$NOTES_FOLDER/Grocery List.md"
-        print_success "Grocery List.md"
-    fi
-
-    # Travel (optional)
-    if [[ "$ENABLE_TRAVEL" == true ]]; then
-        cp "$core_tpl/travel-master-list.md" "$NOTES_FOLDER/Travel Master List.md"
-        print_success "Travel Master List.md"
-    fi
-
-    # Reminders
+    # Create reminders.json if not exists
     if [[ ! -f "$NOTES_FOLDER/reminders.json" ]]; then
         echo "[]" > "$NOTES_FOLDER/reminders.json"
         print_success "reminders.json"
     fi
 
-    # Playbook
-    cp "$prompt_tpl/playbook.md.tpl" "$NOTES_FOLDER/Cowork Agent Playbook.md"
-    apply_substitutions "$NOTES_FOLDER/Cowork Agent Playbook.md"
-    print_success "Cowork Agent Playbook.md"
+    # Copy the system prompt (for daemon/cowork mode)
+    local prompt_tpl="$SCRIPT_DIR/templates/prompts/$LANG_CODE"
+    if [[ -d "$prompt_tpl" ]]; then
+        mkdir -p "$NOTES_FOLDER/skills/mission-control"
+        cp "$prompt_tpl/system-prompt.md.tpl" "$NOTES_FOLDER/skills/mission-control/SKILL.md"
+        apply_substitutions "$NOTES_FOLDER/skills/mission-control/SKILL.md"
+        apply_conditionals "$NOTES_FOLDER/skills/mission-control/SKILL.md"
+        print_success "skills/mission-control/SKILL.md"
+    fi
 
-    # SKILL.md (system prompt)
-    cp "$prompt_tpl/system-prompt.md.tpl" "$NOTES_FOLDER/skills/mission-control/SKILL.md"
-    apply_substitutions "$NOTES_FOLDER/skills/mission-control/SKILL.md"
-    apply_conditionals "$NOTES_FOLDER/skills/mission-control/SKILL.md"
-    replace_block "$NOTES_FOLDER/skills/mission-control/SKILL.md" "{{SCHEDULE_SUMMARY}}" "$schedule_summary"
-    print_success "skills/mission-control/SKILL.md"
-
-    print_success "All state files generated in: $NOTES_FOLDER"
+    echo ""
+    print_success "Framework files copied to: $NOTES_FOLDER"
+    echo ""
+    echo "  Your schedule and workstreams will be set up conversationally"
+    echo "  when the AI connects for the first time."
+    echo "  Or: open 'Getting Started.md' in any AI to do it now."
 }
 
 # ─── Install Dependencies (Daemon Mode) ─────────────────────────────
@@ -868,10 +651,6 @@ save_config() {
   "language": "$LANG_CODE",
   "llm_provider": "$LLM_PROVIDER",
   "channel_provider": "${CHANNEL_PROVIDER:-slack}",
-  "wake_time": "$WAKE_TIME",
-  "sleep_time": "$SLEEP_TIME",
-  "work_start": "$WORK_START",
-  "work_end": "$WORK_END",
   "features": {
     "dispatch": $ENABLE_DISPATCH,
     "midday": $ENABLE_MIDDAY,
@@ -883,12 +662,7 @@ save_config() {
     "travel": $ENABLE_TRAVEL,
     "family": $ENABLE_FAMILY
   },
-  "dispatch_time": "$DISPATCH_TIME",
-  "midday_time": "$MIDDAY_TIME",
-  "afternoon_time": "$AFTERNOON_TIME",
-  "eod_time": "$EOD_TIME",
-  "weekly_plan_time": "$WEEKLY_PLAN_TIME",
-  "workstream_count": $WORKSTREAM_COUNT,
+  "onboarding_complete": false,
   "setup_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 CONF
@@ -1022,19 +796,11 @@ print_summary() {
     echo "  Channel:       $SLACK_CHANNEL_NAME"
     echo ""
 
-    if [[ "$SETUP_MODE" == "daemon" ]]; then
-        echo "  Next steps:"
-        echo "    1. Check your Slack channel for a welcome message"
-        echo "    2. Open your notes folder in Obsidian (or any editor)"
-        echo "    3. Customize Workstreams.md and Daily Scaffolding.md"
-        echo "    4. Send a message in Slack: 'what should I work on?'"
-    else
-        echo "  Next steps:"
-        echo "    1. Open Claude Desktop → Schedule tab"
-        echo "    2. Configure timing for each mc-* task"
-        echo "    3. Open your notes folder in Obsidian"
-        echo "    4. Start a Claude session: 'Run my morning dispatch'"
-    fi
+    echo "  Next steps:"
+    echo "    1. The AI will reach out in Slack to learn about your"
+    echo "       schedule and projects (the onboarding conversation)"
+    echo "    2. Or: open 'Getting Started.md' in any AI to do it now"
+    echo "    3. Open your notes folder in Obsidian for mobile access"
 
     echo ""
     echo -e "  ${GREEN}Enjoy your AI-powered life management system!${NC}"
@@ -1052,8 +818,6 @@ main() {
     collect_llm
     collect_channel
     collect_profile
-    collect_schedule
-    collect_workstreams
     collect_features
     collect_family
     generate_files

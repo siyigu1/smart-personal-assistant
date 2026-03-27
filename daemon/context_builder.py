@@ -33,6 +33,13 @@ OPERATION_FILES = {
         "Workstreams.md",
         "Weekly Goals.md",
     ],
+    "onboarding": [
+        "Getting Started.md",
+        "Cognitive Levels.md",
+        "Daily Scaffolding.md",
+        "Workstreams.md",
+        "Weekly Goals.md",
+    ],
     "message_response": [
         "Workstreams.md",
         "Weekly Goals.md",
@@ -99,7 +106,25 @@ def build_prompt(
     if slack_history:
         prompt += f"\n--- Recent Slack Conversation ---\n{slack_history}\n"
 
-    if operation == "message_response" and user_message:
+    if operation == "onboarding":
+        prompt += """
+---
+OPERATION: Onboarding — First-time user setup.
+
+Read 'Getting Started.md' carefully. It contains the full interview guide.
+Follow it step by step to learn about this user's life, schedule, and projects.
+
+After the conversation, update these files with what you learned:
+- Daily Scaffolding.md — their time blocks, commitments, capacity
+- Workstreams.md — their projects with priorities and details
+- Weekly Goals.md — set up the structure with their workstream names
+
+This is a multi-turn conversation. Ask 2-3 questions at a time, respond
+warmly, then ask the next batch. Make it feel like a 15-minute chat.
+
+Start with Part 1 from the Getting Started guide.
+"""
+    elif operation == "message_response" and user_message:
         prompt += f"""
 ---
 OPERATION: Respond to the user's message below.

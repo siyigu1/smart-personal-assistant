@@ -23,6 +23,21 @@ from .context_builder import build_prompt
 from .file_updater import apply_updates
 
 
+def needs_onboarding(config: Config) -> bool:
+    """Check if the user needs onboarding (first run).
+
+    Returns True if the Workstreams.md file still contains the
+    onboarding placeholder text, meaning the AI hasn't interviewed
+    the user yet.
+    """
+    ws_path = os.path.join(config.notes_folder, "Workstreams.md")
+    if not os.path.exists(ws_path):
+        return True
+    with open(ws_path) as f:
+        content = f.read()
+    return "Not filled in yet" in content or "set during onboarding" in content
+
+
 def create_channel(config: Config):
     """Create the appropriate channel client based on config."""
     if config.channel_provider == "slack":
@@ -128,6 +143,17 @@ def main():
     llm = create_llm(config, channel)
     reminders = ReminderEngine(config.notes_folder)
     scheduler = Scheduler(config.timezone)
+
+    # Check if onboarding is needed (first run)
+    if needs_onboarding(config):
+        print("[daemon] New user detected — starting onboarding conversation")
+        channel.post(
+            f"Hi {config.user_name}! I'm your Personal Assistant. "
+            f"Let's set up your system — I'll ask a few questions about "
+            f"your schedule and projects. Takes about 15 minutes.\n\n"
+            f"Ready to get started? (just reply 'yes' or 'let's go')"
+        )
+        run_operation(llm, channel, config, "onboarding")
 
     # Cross-tasks (optional)
     cross_tasks = None
