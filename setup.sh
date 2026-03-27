@@ -350,9 +350,77 @@ collect_profile() {
     detected_tz="${detected_tz:-America/New_York}"
 
     ask_default "Timezone:" "$detected_tz" TIMEZONE
-    ask_default "Notes folder:" "$HOME/Documents/Personal Assistant" NOTES_FOLDER
+
+    # Notes folder — detect cloud storage options
+    echo ""
+    echo "  Where should your files be stored?"
+    echo "  Using a cloud folder enables mobile access (Obsidian) and family sharing."
+    echo ""
+
+    local folder_options=()
+    local folder_labels=()
+    local default_choice=1
+    local option_num=1
+
+    # Detect available cloud storage locations
+    local icloud_obsidian="$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents"
+    local icloud_docs="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Documents"
+    local dropbox="$HOME/Dropbox"
+    local gdrive="$HOME/Google Drive"
+    local onedrive="$HOME/OneDrive"
+
+    if [[ -d "$icloud_obsidian" ]]; then
+        folder_options+=("$icloud_obsidian/Personal Assistant")
+        folder_labels+=("iCloud (Obsidian vault) — best for mobile access + family sharing")
+        default_choice=$option_num
+        ((option_num++))
+    fi
+    if [[ -d "$icloud_docs" ]]; then
+        folder_options+=("$icloud_docs/Personal Assistant")
+        folder_labels+=("iCloud Documents — syncs across Apple devices")
+        ((option_num++))
+    fi
+    if [[ -d "$dropbox" ]]; then
+        folder_options+=("$dropbox/Personal Assistant")
+        folder_labels+=("Dropbox — cross-platform sync")
+        ((option_num++))
+    fi
+    if [[ -d "$gdrive" ]]; then
+        folder_options+=("$gdrive/Personal Assistant")
+        folder_labels+=("Google Drive — cross-platform sync")
+        ((option_num++))
+    fi
+    if [[ -d "$onedrive" ]]; then
+        folder_options+=("$onedrive/Personal Assistant")
+        folder_labels+=("OneDrive — cross-platform sync")
+        ((option_num++))
+    fi
+
+    # Always offer local option
+    folder_options+=("$HOME/Documents/Personal Assistant")
+    folder_labels+=("Local only — ~/Documents/Personal Assistant")
+    ((option_num++))
+
+    # Always offer custom
+    folder_options+=("custom")
+    folder_labels+=("Custom path")
+
+    for i in "${!folder_labels[@]}"; do
+        echo "    $((i+1)). ${folder_labels[$i]}"
+    done
+    echo ""
+
+    ask_default "Choice:" "$default_choice" folder_choice
+
+    local idx=$((folder_choice - 1))
+    if [[ "${folder_options[$idx]}" == "custom" ]]; then
+        ask "Enter full path:" NOTES_FOLDER
+    else
+        NOTES_FOLDER="${folder_options[$idx]}"
+    fi
 
     print_success "Profile: $USER_NAME | $TIMEZONE"
+    print_success "Notes folder: $NOTES_FOLDER"
 }
 
 # ─── Step 7: Schedule ───────────────────────────────────────────────

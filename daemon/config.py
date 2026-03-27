@@ -64,31 +64,56 @@ def load_config(config_path: Optional[str] = None) -> Config:
         config_path = os.environ.get("MC_CONFIG")
 
     if config_path is None:
-        # Search common locations
         home = os.path.expanduser("~")
+
+        # Common locations including cloud storage
         candidates = [
+            # iCloud (Obsidian vault — most common for this project)
+            os.path.join(home, "Library", "Mobile Documents",
+                         "iCloud~md~obsidian", "Documents",
+                         "Personal Assistant", ".mc-config.json"),
+            # iCloud Documents
+            os.path.join(home, "Library", "Mobile Documents",
+                         "com~apple~CloudDocs", "Documents",
+                         "Personal Assistant", ".mc-config.json"),
+            # Local
             os.path.join(home, "Documents", "Personal Assistant", ".mc-config.json"),
             os.path.join(home, "Documents", "Mission Control", ".mc-config.json"),
-            os.path.join(home, "Documents", "mission-control", ".mc-config.json"),
-            os.path.join(home, "Personal Assistant", ".mc-config.json"),
-            os.path.join(home, "Mission Control", ".mc-config.json"),
+            # Dropbox / Google Drive / OneDrive
+            os.path.join(home, "Dropbox", "Personal Assistant", ".mc-config.json"),
+            os.path.join(home, "Google Drive", "Personal Assistant", ".mc-config.json"),
+            os.path.join(home, "OneDrive", "Personal Assistant", ".mc-config.json"),
         ]
         for c in candidates:
             if os.path.exists(c):
                 config_path = c
                 break
 
-    # If still not found, do a shallow search of ~/Documents
+    # If still not found, search common parent directories
     if config_path is None or not os.path.exists(str(config_path)):
         home = os.path.expanduser("~")
-        for search_dir in [os.path.join(home, "Documents"), home]:
+        search_dirs = [
+            os.path.join(home, "Documents"),
+            os.path.join(home, "Library", "Mobile Documents",
+                         "iCloud~md~obsidian", "Documents"),
+            os.path.join(home, "Dropbox"),
+            os.path.join(home, "Google Drive"),
+            os.path.join(home, "OneDrive"),
+            home,
+        ]
+        for search_dir in search_dirs:
             if not os.path.isdir(search_dir):
                 continue
-            for entry in os.listdir(search_dir):
-                candidate = os.path.join(search_dir, entry, ".mc-config.json")
-                if os.path.exists(candidate):
-                    config_path = candidate
-                    break
+            try:
+                for entry in os.listdir(search_dir):
+                    candidate = os.path.join(search_dir, entry, ".mc-config.json")
+                    if os.path.exists(candidate):
+                        config_path = candidate
+                        break
+            except PermissionError:
+                continue
+            if config_path and os.path.exists(config_path):
+                break
             if config_path and os.path.exists(config_path):
                 break
 
