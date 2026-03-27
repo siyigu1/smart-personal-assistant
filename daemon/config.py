@@ -65,17 +65,38 @@ def load_config(config_path: Optional[str] = None) -> Config:
 
     if config_path is None:
         # Search common locations
+        home = os.path.expanduser("~")
         candidates = [
-            os.path.expanduser("~/Documents/Personal Assistant/.mc-config.json"),
-            os.path.expanduser("~/Documents/mission-control/.mc-config.json"),
+            os.path.join(home, "Documents", "Personal Assistant", ".mc-config.json"),
+            os.path.join(home, "Documents", "Mission Control", ".mc-config.json"),
+            os.path.join(home, "Documents", "mission-control", ".mc-config.json"),
+            os.path.join(home, "Personal Assistant", ".mc-config.json"),
+            os.path.join(home, "Mission Control", ".mc-config.json"),
         ]
         for c in candidates:
             if os.path.exists(c):
                 config_path = c
                 break
 
-    if config_path is None or not os.path.exists(config_path):
-        print("[config] No .mc-config.json found. Run setup.sh first.")
+    # If still not found, do a shallow search of ~/Documents
+    if config_path is None or not os.path.exists(str(config_path)):
+        home = os.path.expanduser("~")
+        for search_dir in [os.path.join(home, "Documents"), home]:
+            if not os.path.isdir(search_dir):
+                continue
+            for entry in os.listdir(search_dir):
+                candidate = os.path.join(search_dir, entry, ".mc-config.json")
+                if os.path.exists(candidate):
+                    config_path = candidate
+                    break
+            if config_path and os.path.exists(config_path):
+                break
+
+    if config_path is None or not os.path.exists(str(config_path)):
+        print("[config] No .mc-config.json found.")
+        print("[config] Either run ./setup.sh first, or specify the path:")
+        print("[config]   ./run.sh /path/to/your/notes/folder/.mc-config.json")
+        print("[config]   or: MC_CONFIG=/path/to/.mc-config.json ./run.sh")
         raise FileNotFoundError("No .mc-config.json found")
 
     with open(config_path) as f:
