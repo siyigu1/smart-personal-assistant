@@ -180,7 +180,10 @@ All included in Claude Pro subscription ($20/mo):
 | Standard | ~15-20K | Daemon mode, all features |
 | Cowork mode | ~60-80K | All-Claude, no daemon |
 
-## Cognitive Levels
+## The Core Ideas
+
+### Cognitive Levels
+Not all tasks need the same brain power. Classify by how much of YOUR attention is needed:
 
 | Level | Name | Parallelize? |
 |-------|------|-------------|
@@ -190,6 +193,22 @@ All included in Claude Pro subscription ($20/mo):
 | L3 | Autonomous (agent handles it) | Unlimited |
 
 **Key rule:** Never two L2 tasks in parallel. One L2 + any number of L3s.
+
+### Eisenhower Matrix
+Every new item gets auto-classified:
+- **Q1** (Important + Urgent) → Do now
+- **Q2** (Important + Not Urgent) → Protect time for this (most valuable work)
+- **Q3** (Not Important + Urgent) → Delegate or quick-fix
+- **Q4** (Not Important + Not Urgent) → Drop it
+
+### Workstream Management
+Each project has: priority ranking, pick-up packet (30-sec context switch), pending tasks with cognitive levels, and a decisions log.
+
+### Daily Scaffolding
+Your day mapped by capacity — the AI suggests the right task for the right moment. Not a rigid schedule, a flexible scaffold.
+
+### Weekly Cycles
+Sunday plan → daily dispatches → Friday reflection. The AI runs the cycle.
 
 ## Contributing
 
