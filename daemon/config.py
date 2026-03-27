@@ -59,10 +59,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
         config_path: Path to .mc-config.json. If None, uses MC_CONFIG
                      environment variable or searches common locations.
     """
-    # Load .env for secrets (Slack bot token, etc.)
-    load_dotenv()
-
-    # Find config file
+    # Find config file first (we need notes_folder to find .env)
     if config_path is None:
         config_path = os.environ.get("MC_CONFIG")
 
@@ -83,6 +80,14 @@ def load_config(config_path: Optional[str] = None) -> Config:
 
     with open(config_path) as f:
         data = json.load(f)
+
+    # Load .env from the notes folder (where setup.sh writes it)
+    notes_folder = data.get("notes_folder", "")
+    env_path = os.path.join(notes_folder, ".env") if notes_folder else None
+    if env_path and os.path.exists(env_path):
+        load_dotenv(env_path)
+    else:
+        load_dotenv()  # Fall back to cwd / environment
 
     features_data = data.get("features", {})
     features = Features(
