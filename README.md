@@ -63,6 +63,31 @@ The wizard walks you through:
 6. Your schedule, workstreams, and features
 7. Dependency installation + daemon startup
 
+### After Setup
+
+If you chose **background service** during setup, the daemon is already running — check your Slack channel for a welcome message.
+
+If you chose **manual**, start the daemon with:
+
+```bash
+./run.sh
+```
+
+Other options:
+```bash
+./run.sh --once                        # Run one cycle and exit (testing)
+./run.sh /path/to/.mc-config.json      # Use a specific config file
+```
+
+To stop a background service:
+```bash
+# macOS
+launchctl stop com.mission-control.daemon
+
+# Linux
+systemctl --user stop mission-control
+```
+
 ## Architecture
 
 ```
@@ -187,6 +212,15 @@ cd smart-personal-assistant
 ```
 
 设置时选"2. 中文"，agent 就会用中文跟你沟通。
+
+### 设置完成后
+
+如果选了**后台服务**，守护进程已经在运行了——去 Slack 频道看看欢迎消息。
+
+手动启动：
+```bash
+./run.sh
+```
 
 ## 混合架构
 
