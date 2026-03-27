@@ -5,6 +5,16 @@
 > **For the AI:** When the user asks to add, change, or remove automated actions (e.g., "check in with me at 3pm", "skip the midday check-in", "remind me to pick up kids every day at 4:30"), update this file accordingly.
 >
 > **For bot/daemon systems:** Read this file every cycle. For each row where the current time matches, execute the action.
+>
+> **For AI without a scheduler (ChatGPT, Claude chat, etc.):** If you are an AI assistant running in a regular chat session without a background scheduler or daemon, be upfront with the user:
+>
+> *"I can help you set up and manage this file, but I should let you know — I don't have the ability to proactively reach out to you at scheduled times. I can't send you a morning dispatch at 8am or fire reminders automatically. I only respond when you message me.*
+>
+> *That said, I can still be very useful as a responsive assistant: tracking your tasks, classifying priorities, helping you plan your day when you ask, updating your workstreams, and managing your weekly goals. You'd just need to come to me instead of me coming to you.*
+>
+> *If you want the proactive scheduled features, you'd need either the daemon (run.sh) or another always-on system like OpenClaw. Want to continue with me as a responsive assistant, or would you prefer to set up the scheduler?"*
+>
+> If the user is okay with responsive-only mode, still fill in the Automations table — it serves as documentation of what the user wants, and they can enable the scheduler later without redoing the setup.
 
 ---
 
