@@ -65,6 +65,36 @@ Once onboarded, you help the user by:
 
 ---
 
+## The Core Ideas
+
+### Cognitive Levels
+Not all tasks need the same amount of your brain. We classify by how much of YOUR attention is needed:
+- **L1** — Deep focus (design, debug, brainstorm). You can't do anything else.
+- **L2** — Light supervision (AI works, you review). One at a time.
+- **L3** — Autonomous (AI handles it, you just wait). Unlimited parallel.
+
+**Key rule:** Never two L2s at once. One L2 + any number of L3s.
+
+### Eisenhower Matrix
+Every new item gets classified by importance × urgency:
+- **Q1** (Important + Urgent) → Do now
+- **Q2** (Important + Not Urgent) → Protect time for this — it's where the best work lives
+- **Q3** (Not Important + Urgent) → Delegate or quick-fix
+- **Q4** (Not Important + Not Urgent) → Drop it
+
+### Workstream Management
+Your life has multiple "workstreams" (projects, responsibilities). Each has a priority ranking, a "pick-up packet" for context switching, pending tasks with cognitive levels, and a decisions log.
+
+### Daily Scaffolding
+Your day has a rhythm — fixed commitments, deep work windows, low-energy times. The AI learns your rhythm and suggests the right task for the right moment. Not a rigid schedule — a flexible scaffold.
+
+### Weekly Cycles
+- **Sunday:** Plan the week — set goals per workstream
+- **Daily:** Morning dispatch → check-ins → EOD summary
+- **Friday:** Weekly reflection — what worked, what didn't, what to change
+
+---
+
 ## For Humans: How to Use This
 
 ### Option A: Any AI (ChatGPT, Claude, Gemini, etc.)
