@@ -83,9 +83,10 @@ def build_prompt(
         A complete prompt string with system instructions and all
         relevant state files inline.
     """
-    # Load system prompt (the "kernel")
+    # Load system prompt — try START HERE.md first, fall back to SKILL.md
+    start_here = os.path.join(notes_folder, "START HERE.md")
     skill_path = os.path.join(notes_folder, "skills", "mission-control", "SKILL.md")
-    system_prompt = read_file(skill_path) or ""
+    system_prompt = read_file(start_here) or read_file(skill_path) or ""
 
     # Load playbook
     playbook_path = os.path.join(notes_folder, "Cowork Agent Playbook.md")

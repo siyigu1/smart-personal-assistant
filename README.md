@@ -46,29 +46,40 @@ A lightweight Python daemon runs in the background. It handles polling, reminder
 - **Family extension** — Second user with cross-task delegation
 - **Bilingual** — Full English and Chinese support
 
-## Quick Start
+## Quick Start — Use with Any AI (no install needed)
 
-```bash
-git clone https://github.com/siyi-gu/smart-personal-assistant.git
-cd smart-personal-assistant
-./setup.sh
+1. Download the `framework/` folder from this repo
+2. Open your favorite AI (ChatGPT, Claude, Gemini, etc.)
+3. Upload the folder or paste the contents of `START HERE.md`
+4. Say: **"Read all the files in this folder and help me manage my life"**
+5. The AI interviews you about your schedule and projects (~15 min)
+6. You're set up. Share the folder at the start of each session.
+
+**Prompt to paste:**
+```
+I'm using a personal life management framework. The instructions
+are in the attached file "START HERE.md". Please read it and all
+other .md files in the folder, then help me manage my day.
 ```
 
-The wizard walks you through:
-1. System check (Python, Claude CLI)
-2. Setup mode (daemon vs cowork)
-3. Language (English / 中文)
-4. LLM provider (Claude CLI using subscription)
-5. Slack App creation (step-by-step with auto-opening URLs)
-6. Your schedule, workstreams, and features
-7. Dependency installation + daemon startup
+> Note: without a scheduler, the AI can't proactively reach out at scheduled times. It works as a responsive assistant — you come to it. For proactive features (morning dispatch, auto check-ins, reminders), use the daemon below.
+
+## Quick Start — Automated Slack Bot (proactive features)
+
+```bash
+git clone https://github.com/siyigu1/smart-personal-assistant.git
+cd smart-personal-assistant
+./setup.sh
+./run.sh
+```
+
+The setup wizard asks for: mode, language, LLM provider, Slack channel, your name. That's it — the AI handles the rest conversationally on first run.
 
 ### After Setup
 
-If you chose **background service** during setup, the daemon is already running — check your Slack channel for a welcome message.
+If you chose **background service**, the daemon is already running — the AI will reach out in Slack to onboard you.
 
-If you chose **manual**, start the daemon with:
-
+If you chose **manual**, start with:
 ```bash
 ./run.sh
 ```
@@ -83,7 +94,6 @@ To stop a background service:
 ```bash
 # macOS
 launchctl stop com.mission-control.daemon
-
 # Linux
 systemctl --user stop mission-control
 ```
@@ -199,19 +209,25 @@ MIT
 
 ## 这是什么？
 
-一个用 AI + Slack + Obsidian 搭建的个人生活管理系统。
+一套用 markdown 文件构成的 AI 生活管理框架。核心是方法论文档——给任何 AI 都能用。
 
-你的 AI 助手住在 Slack 里，帮你管理日程、追踪多个项目、发提醒、做周总结——完全按照你的节奏定制。
+## 最简单的用法（不需要安装任何东西）
 
-## 快速开始
+1. 下载 `framework/` 文件夹
+2. 打开你常用的 AI（ChatGPT、Claude、豆包、Gemini…）
+3. 上传文件夹，或粘贴 `START HERE.md` 的内容
+4. 说：**"读一下这个文件夹里的所有文件，帮我管理生活"**
+5. AI 会用对话方式了解你的日程和项目（约15分钟）
+6. 搞定。以后每次开聊天时分享这个文件夹就行。
+
+## 自动化版本（Slack 机器人）
 
 ```bash
-git clone https://github.com/siyi-gu/smart-personal-assistant.git
+git clone https://github.com/siyigu1/smart-personal-assistant.git
 cd smart-personal-assistant
-./setup.sh
+./setup.sh    # 设置时选"2. 中文"
+./run.sh
 ```
-
-设置时选"2. 中文"，agent 就会用中文跟你沟通。
 
 ### 设置完成后
 
