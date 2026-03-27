@@ -29,7 +29,9 @@ ask() {
 ask_default() {
     local prompt="$1" default="$2" var="$3"
     read -rp "$(echo -e "  ${BOLD}$prompt${NC} ${DIM}[$default]${NC} ")" "$var"
-    [[ -z "${!var}" ]] && eval "$var='$default'"
+    if [[ -z "${!var}" ]]; then
+        eval "$var='$default'"
+    fi
 }
 
 confirm() {
@@ -373,33 +375,33 @@ collect_profile() {
         folder_options+=("$icloud_obsidian/Personal Assistant")
         folder_labels+=("iCloud (Obsidian vault) — best for mobile access + family sharing")
         default_choice=$option_num
-        ((option_num++))
+        option_num=$((option_num + 1))
     fi
     if [[ -d "$icloud_docs" ]]; then
         folder_options+=("$icloud_docs/Personal Assistant")
         folder_labels+=("iCloud Documents — syncs across Apple devices")
-        ((option_num++))
+        option_num=$((option_num + 1))
     fi
     if [[ -d "$dropbox" ]]; then
         folder_options+=("$dropbox/Personal Assistant")
         folder_labels+=("Dropbox — cross-platform sync")
-        ((option_num++))
+        option_num=$((option_num + 1))
     fi
     if [[ -d "$gdrive" ]]; then
         folder_options+=("$gdrive/Personal Assistant")
         folder_labels+=("Google Drive — cross-platform sync")
-        ((option_num++))
+        option_num=$((option_num + 1))
     fi
     if [[ -d "$onedrive" ]]; then
         folder_options+=("$onedrive/Personal Assistant")
         folder_labels+=("OneDrive — cross-platform sync")
-        ((option_num++))
+        option_num=$((option_num + 1))
     fi
 
     # Always offer local option
     folder_options+=("$HOME/Documents/Personal Assistant")
     folder_labels+=("Local only — ~/Documents/Personal Assistant")
-    ((option_num++))
+    option_num=$((option_num + 1))
 
     # Always offer custom
     folder_options+=("custom")
@@ -449,10 +451,12 @@ collect_schedule() {
         ask "  Block $block_num end:" block_end
         DEEP_WORK_BLOCKS="${DEEP_WORK_BLOCKS}- **${block_start}-${block_end}** — Deep work block $block_num
 "
-        ((block_num++))
+        block_num=$((block_num + 1))
     done
-    [[ -z "$DEEP_WORK_BLOCKS" ]] && DEEP_WORK_BLOCKS="- **${WORK_START}-${WORK_END}** — Main work block
+    if [[ -z "$DEEP_WORK_BLOCKS" ]]; then
+        DEEP_WORK_BLOCKS="- **${WORK_START}-${WORK_END}** — Main work block
 "
+    fi
 
     # Fixed commitments
     echo ""
@@ -465,8 +469,10 @@ collect_schedule() {
         FIXED_COMMITMENTS="${FIXED_COMMITMENTS}- ${commitment}
 "
     done
-    [[ -z "$FIXED_COMMITMENTS" ]] && FIXED_COMMITMENTS="_(none configured)_
+    if [[ -z "$FIXED_COMMITMENTS" ]]; then
+        FIXED_COMMITMENTS="_(none configured)_
 "
+    fi
 
     # Off-limits times
     echo ""
@@ -479,8 +485,10 @@ collect_schedule() {
         OFF_LIMITS="${OFF_LIMITS}- ${period}
 "
     done
-    [[ -z "$OFF_LIMITS" ]] && OFF_LIMITS="_(none configured)_
+    if [[ -z "$OFF_LIMITS" ]]; then
+        OFF_LIMITS="_(none configured)_
 "
+    fi
 
     print_success "Schedule configured"
 }
@@ -515,7 +523,7 @@ collect_workstreams() {
         WORKSTREAM_PRIORITIES+=("$ws_priority")
         WORKSTREAM_PHASES+=("$ws_phase")
         WORKSTREAM_LEVELS+=("$ws_level")
-        ((WORKSTREAM_COUNT++))
+        WORKSTREAM_COUNT=$((WORKSTREAM_COUNT + 1))
     done
 
     if [[ $WORKSTREAM_COUNT -eq 0 ]]; then
@@ -529,7 +537,9 @@ collect_workstreams() {
 
     WORKSTREAM_PRIORITY_ORDER=""
     for name in "${WORKSTREAM_NAMES[@]}"; do
-        [[ -n "$WORKSTREAM_PRIORITY_ORDER" ]] && WORKSTREAM_PRIORITY_ORDER+=" > "
+        if [[ -n "$WORKSTREAM_PRIORITY_ORDER" ]]; then
+            WORKSTREAM_PRIORITY_ORDER+=" > "
+        fi
         WORKSTREAM_PRIORITY_ORDER+="$name"
     done
 
@@ -828,12 +838,12 @@ create_cowork_tasks() {
 
         # Skip disabled features
         case "$task_name" in
-            mc-morning-dispatch) [[ "$ENABLE_DISPATCH" != true ]] && continue ;;
-            mc-midday-checkin)   [[ "$ENABLE_MIDDAY" != true ]] && continue ;;
-            mc-afternoon-checkin) [[ "$ENABLE_AFTERNOON" != true ]] && continue ;;
-            mc-eod-summary)      [[ "$ENABLE_EOD" != true ]] && continue ;;
-            mc-friday-summary)   [[ "$ENABLE_WEEKLY_REVIEW" != true ]] && continue ;;
-            mc-sunday-planning)  [[ "$ENABLE_WEEKLY_PLAN" != true ]] && continue ;;
+            mc-morning-dispatch)  if [[ "$ENABLE_DISPATCH" != true ]]; then continue; fi ;;
+            mc-midday-checkin)    if [[ "$ENABLE_MIDDAY" != true ]]; then continue; fi ;;
+            mc-afternoon-checkin) if [[ "$ENABLE_AFTERNOON" != true ]]; then continue; fi ;;
+            mc-eod-summary)       if [[ "$ENABLE_EOD" != true ]]; then continue; fi ;;
+            mc-friday-summary)    if [[ "$ENABLE_WEEKLY_REVIEW" != true ]]; then continue; fi ;;
+            mc-sunday-planning)   if [[ "$ENABLE_WEEKLY_PLAN" != true ]]; then continue; fi ;;
         esac
 
         mkdir -p "$task_dir"
