@@ -95,7 +95,11 @@ Then ask about priorities:
 >
 > Want to set your preferred times for these check-ins?"
 
-Collect their preferred times for: morning dispatch, midday check-in, afternoon check-in, EOD summary.
+Collect their preferred times and update **Automations.md** — add a row for each feature they want. For example:
+- Morning dispatch at 8am → add row: `| 08:00 | weekdays | llm | Morning dispatch | Generate the morning dispatch... |`
+- EOD summary at 7pm → add row: `| 19:00 | weekdays | llm | EOD summary | Generate the end-of-day summary... |`
+
+See `Automations.md` for the full format and example rows.
 
 ### Part 5: Anything Else? (1 minute)
 
@@ -103,8 +107,12 @@ Collect their preferred times for: morning dispatch, midday check-in, afternoon 
 > - **Grocery list** — I track it by store category, you just say 'add eggs'
 > - **Travel packing** — I generate packing lists based on trip length and weather
 > - **Reminders** — 'remind me in 2 hours to switch laundry'
+> - **Recurring reminders** — 'remind me to pick up kids at 4:30 every weekday'
 >
 > Want any of these?"
+
+For recurring reminders, add them as `message` type rows in Automations.md:
+`| 16:30 | weekdays | message | Kid pickup reminder | Reminder: kid pickup in 20 minutes! |`
 
 ---
 
@@ -146,6 +154,15 @@ _(empty)_
 ```
 
 **Weekly Goals.md** — Create the structure with their workstream names. Leave goals empty — those get filled during the first Sunday planning session.
+
+**Automations.md** — Add rows for each feature they requested. See the file for format. Example:
+```
+| 08:00 | weekdays | llm     | Morning dispatch    | Generate the morning dispatch... |
+| 12:30 | weekdays | llm     | Midday check-in     | Generate a midday check-in... |
+| 19:00 | weekdays | llm     | EOD summary          | Generate the end-of-day summary... |
+| 20:00 | sunday   | llm     | Weekly planning      | Run the weekly planning session... |
+| 16:30 | weekdays | message | Kid pickup reminder  | Reminder: kid pickup in 20 minutes! |
+```
 
 ### Confirm with the User
 

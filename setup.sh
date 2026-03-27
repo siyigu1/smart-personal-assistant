@@ -428,48 +428,8 @@ collect_profile() {
 # ─── (Steps 7-8 removed — schedule and workstreams are now set up
 # ─── conversationally by the AI during first run. See framework/Getting Started.md)
 
-# ─── Step 9: Features ───────────────────────────────────────────────
-
-collect_features() {
-    print_step "Step 9: Features"
-
-    echo "  Select which features to enable:"
-    echo ""
-
-    ENABLE_DISPATCH=false; ENABLE_MIDDAY=false; ENABLE_AFTERNOON=false
-    ENABLE_EOD=false; ENABLE_WEEKLY_REVIEW=false; ENABLE_WEEKLY_PLAN=false
-    ENABLE_GROCERY=false; ENABLE_TRAVEL=false
-
-    DISPATCH_TIME="08:00"; MIDDAY_TIME="12:30"; AFTERNOON_TIME="15:30"
-    EOD_TIME="19:00"; WEEKLY_PLAN_TIME="20:00"
-
-    if confirm "Morning dispatch?"; then
-        ENABLE_DISPATCH=true
-        ask_default "  Time:" "08:00" DISPATCH_TIME
-    fi
-    if confirm "Midday check-in?"; then
-        ENABLE_MIDDAY=true
-        ask_default "  Time:" "12:30" MIDDAY_TIME
-    fi
-    if confirm "Afternoon check-in?"; then
-        ENABLE_AFTERNOON=true
-        ask_default "  Time:" "15:30" AFTERNOON_TIME
-    fi
-    if confirm "End-of-day summary?"; then
-        ENABLE_EOD=true
-        ask_default "  Time:" "19:00" EOD_TIME
-    fi
-    if confirm "Friday weekly review?"; then ENABLE_WEEKLY_REVIEW=true; fi
-    if confirm "Sunday weekly planning?"; then
-        ENABLE_WEEKLY_PLAN=true
-        ask_default "  Time:" "20:00" WEEKLY_PLAN_TIME
-    fi
-    echo ""
-    if confirm "Grocery list management?"; then ENABLE_GROCERY=true; fi
-    if confirm "Travel packing list?"; then ENABLE_TRAVEL=true; fi
-
-    print_success "Features configured"
-}
+# ─── (Step 9 removed — features are now configured conversationally
+# ─── by the AI during onboarding. See framework/Automations.md)
 
 # ─── Step 10: Family Extension ──────────────────────────────────────
 
@@ -651,17 +611,7 @@ save_config() {
   "language": "$LANG_CODE",
   "llm_provider": "$LLM_PROVIDER",
   "channel_provider": "${CHANNEL_PROVIDER:-slack}",
-  "features": {
-    "dispatch": $ENABLE_DISPATCH,
-    "midday": $ENABLE_MIDDAY,
-    "afternoon": $ENABLE_AFTERNOON,
-    "eod": $ENABLE_EOD,
-    "weekly_review": $ENABLE_WEEKLY_REVIEW,
-    "weekly_plan": $ENABLE_WEEKLY_PLAN,
-    "grocery": $ENABLE_GROCERY,
-    "travel": $ENABLE_TRAVEL,
-    "family": $ENABLE_FAMILY
-  },
+  "family": $ENABLE_FAMILY,
   "onboarding_complete": false,
   "setup_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -818,7 +768,6 @@ main() {
     collect_llm
     collect_channel
     collect_profile
-    collect_features
     collect_family
     generate_files
     install_deps

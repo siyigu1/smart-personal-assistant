@@ -33,6 +33,13 @@ OPERATION_FILES = {
         "Workstreams.md",
         "Weekly Goals.md",
     ],
+    "automation": [
+        "Workstreams.md",
+        "Weekly Goals.md",
+        "Daily Scaffolding.md",
+        "Cognitive Levels.md",
+        "Priority Framework.md",
+    ],
     "onboarding": [
         "Getting Started.md",
         "Cognitive Levels.md",
@@ -106,7 +113,17 @@ def build_prompt(
     if slack_history:
         prompt += f"\n--- Recent Slack Conversation ---\n{slack_history}\n"
 
-    if operation == "onboarding":
+    if operation == "automation":
+        prompt += f"""
+---
+OPERATION: Scheduled automation.
+Follow these instructions:
+
+{user_message}
+
+Use the state files above as context. Verify the day-of-week before stating it.
+"""
+    elif operation == "onboarding":
         prompt += """
 ---
 OPERATION: Onboarding — First-time user setup.

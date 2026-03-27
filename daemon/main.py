@@ -18,7 +18,7 @@ from .llm.claude_cli import ClaudeCLI
 from .llm.base import LLMBridge
 from .reminder_engine import ReminderEngine
 from .cross_tasks import CrossTaskChecker
-from .scheduler import Scheduler
+from .automations import check_and_run as check_automations
 from .context_builder import build_prompt
 from .file_updater import apply_updates
 
@@ -142,7 +142,6 @@ def main():
     channel = create_channel(config)
     llm = create_llm(config, channel)
     reminders = ReminderEngine(config.notes_folder)
-    scheduler = Scheduler(config.timezone)
 
     # Check if onboarding is needed (first run)
     if needs_onboarding(config):
@@ -162,50 +161,6 @@ def main():
             os.path.dirname(config.notes_folder), "cross-tasks.json"
         )
         cross_tasks = CrossTaskChecker(cross_tasks_path, config.user_name)
-
-    # Register scheduled operations
-    if config.features.dispatch:
-        scheduler.daily(
-            config.dispatch_time,
-            lambda: run_operation(llm, channel, config, "morning_dispatch"),
-            weekdays_only=True,
-            name="Morning Dispatch",
-        )
-    if config.features.midday:
-        scheduler.daily(
-            config.midday_time,
-            lambda: run_operation(llm, channel, config, "midday_checkin"),
-            weekdays_only=True,
-            name="Midday Check-in",
-        )
-    if config.features.afternoon:
-        scheduler.daily(
-            config.afternoon_time,
-            lambda: run_operation(llm, channel, config, "afternoon_checkin"),
-            weekdays_only=True,
-            name="Afternoon Check-in",
-        )
-    if config.features.eod:
-        scheduler.daily(
-            config.eod_time,
-            lambda: run_operation(llm, channel, config, "eod_summary"),
-            weekdays_only=True,
-            name="EOD Summary",
-        )
-    if config.features.weekly_review:
-        scheduler.weekly(
-            "friday",
-            config.eod_time,
-            lambda: run_operation(llm, channel, config, "weekly_review"),
-            name="Friday Weekly Review",
-        )
-    if config.features.weekly_plan:
-        scheduler.weekly(
-            "sunday",
-            config.weekly_plan_time,
-            lambda: run_operation(llm, channel, config, "weekly_planning"),
-            name="Sunday Weekly Planning",
-        )
 
     # Graceful shutdown
     running = True
@@ -237,11 +192,8 @@ def main():
             reminders.check_and_fire(channel)
             last_reminder_check = now
 
-        # 2. Check for new messages (5 min day / 15 min night)
-        is_day = scheduler.is_daytime(config.wake_time, config.sleep_time)
-        poll_interval = DAY_POLL_INTERVAL if is_day else NIGHT_POLL_INTERVAL
-
-        if now - last_message_check >= poll_interval:
+        # 2. Check for new messages (every 5 min)
+        if now - last_message_check >= DAY_POLL_INTERVAL:
             new_msg = channel.check_for_new_message()
             if new_msg:
                 # Acknowledge immediately
@@ -254,8 +206,8 @@ def main():
                 )
             last_message_check = now
 
-        # 3. Run scheduled operations
-        scheduler.run_pending()
+        # 3. Run automations from Automations.md
+        check_automations(config.notes_folder, channel, llm, config)
 
         # 4. Check cross-tasks (if family extension enabled)
         if cross_tasks:
