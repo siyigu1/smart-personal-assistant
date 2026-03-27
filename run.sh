@@ -23,5 +23,20 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     exit 0
 fi
 
+# Check Python dependencies
+missing=()
+python3 -c "import slack_sdk" 2>/dev/null || missing+=("slack-sdk")
+python3 -c "import dotenv" 2>/dev/null || missing+=("python-dotenv")
+python3 -c "import schedule" 2>/dev/null || missing+=("schedule")
+
+if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "Missing Python dependencies: ${missing[*]}"
+    echo ""
+    echo "Installing..."
+    python3 -m pip install -r "$SCRIPT_DIR/daemon/requirements.txt" --quiet
+    echo "Done."
+    echo ""
+fi
+
 # Pass all args through to the daemon
 exec python3 -m daemon.main "$@"
