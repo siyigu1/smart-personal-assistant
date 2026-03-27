@@ -1,6 +1,6 @@
 """Cron-like scheduler with day-of-week awareness.
 
-Wraps the `schedule` library with Mission Control-specific logic:
+Wraps the `schedule` library with Personal Assistant-specific logic:
 weekday-only jobs, staggering, catch-up on restart.
 """
 

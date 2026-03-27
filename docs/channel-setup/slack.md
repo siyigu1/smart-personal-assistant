@@ -1,21 +1,33 @@
 # Slack App Setup Guide
 
-Step-by-step guide to create a Slack App for Mission Control.
+## Quick Setup (Recommended)
 
-## Step 1: Create a Slack App
+The `setup.sh` script opens a pre-filled Slack App creation page with all permissions already configured. You just need to:
+
+1. Select your workspace
+2. Click **Create**
+3. Go to **OAuth & Permissions** → **Install to Workspace** → **Allow**
+4. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
+5. Create/pick a channel, invite the bot, copy the Channel ID
+
+That's it — 3 steps instead of 7.
+
+## Manual Setup
+
+If you prefer to create the app manually:
+
+### Step 1: Create a Slack App
 
 1. Go to https://api.slack.com/apps
-2. Click **Create New App**
-3. Choose **From scratch**
-4. App Name: `Mission Control` (or whatever you like)
-5. Pick your workspace
-6. Click **Create App**
+2. Click **Create New App** → **From scratch**
+3. App Name: `Personal Assistant` (or `智能管家` for Chinese)
+4. Pick your workspace → **Create App**
 
-## Step 2: Add Bot Permissions
+### Step 2: Add Bot Permissions
 
 1. In the left sidebar, click **OAuth & Permissions**
 2. Scroll down to **Bot Token Scopes**
-3. Click **Add an OAuth Scope** and add these scopes:
+3. Add these scopes:
 
 | Scope | What it does |
 |---|---|
@@ -23,37 +35,27 @@ Step-by-step guide to create a Slack App for Mission Control.
 | `channels:read` | View basic channel info |
 | `chat:write` | Post messages |
 | `reactions:read` | See emoji reactions |
+| `groups:history` | Read messages in private channels |
+| `groups:read` | View private channel info |
+| `im:history` | Read direct messages |
+| `im:read` | View DM info |
+| `im:write` | Send direct messages |
 
-## Step 3: Install to Workspace
+### Step 3: Install to Workspace
 
-1. Scroll back to the top of the **OAuth & Permissions** page
-2. Click **Install to Workspace**
-3. Review the permissions and click **Allow**
+1. Click **Install to Workspace** at the top
+2. Review permissions → **Allow**
 
-## Step 4: Copy Your Bot Token
+### Step 4: Copy Your Bot Token
 
-1. After installation, you'll see **Bot User OAuth Token**
-2. It starts with `xoxb-`
-3. Copy this token — you'll need it for the setup script
-4. Keep it secret! Don't commit it to git.
+1. You'll see **Bot User OAuth Token** (starts with `xoxb-`)
+2. Copy this token — keep it secret, don't commit to git
 
-## Step 5: Create a Channel
+### Step 5: Set Up Channel
 
-1. In Slack, create a new channel (e.g., `#my-cowork`)
-2. Or use an existing channel
-
-## Step 6: Add the Bot to Your Channel
-
-1. Go to the channel
-2. Type `/invite @Mission Control` (use whatever name you chose)
-3. The bot should appear as a member
-
-## Step 7: Get the Channel ID
-
-1. Right-click the channel name in the sidebar
-2. Click **View channel details**
-3. Scroll to the bottom
-4. Copy the **Channel ID** (starts with `C`)
+1. Create a channel (e.g., `#my-cowork`) or use an existing one
+2. Invite the bot: type `/invite @Personal Assistant` in the channel
+3. Get Channel ID: right-click channel → View channel details → bottom
 
 ## Troubleshooting
 
@@ -64,7 +66,7 @@ Step-by-step guide to create a Slack App for Mission Control.
 
 **Bot can't read messages?**
 - Check that `channels:history` scope is added
-- Make sure it's a public channel, or add `groups:history` for private channels
+- For private channels, also add `groups:history`
 
 **Token not working?**
 - Make sure you're using the **Bot User OAuth Token**, not the User OAuth Token

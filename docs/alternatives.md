@@ -1,6 +1,6 @@
 # Alternative Setup Paths
 
-Mission Control's core is agent-agnostic: plain markdown state files + a text-based system prompt. You can use it with different platforms.
+Personal Assistant's core is agent-agnostic: plain markdown state files + a text-based system prompt. You can use it with different platforms.
 
 ## Option 1: With OpenClaw
 
@@ -61,7 +61,7 @@ The system prompt is pure text. Any LLM that can:
 2. Return structured text output
 3. Be invoked from a script
 
-...can power Mission Control. You'd need to:
+...can power Personal Assistant. You'd need to:
 1. Create a new LLM bridge in `daemon/llm/` (implement the `LLMBridge` interface)
 2. Set `llm_provider` in your config
 

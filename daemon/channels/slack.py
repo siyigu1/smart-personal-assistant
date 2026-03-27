@@ -94,7 +94,7 @@ class SlackChannel(ChannelClient):
         try:
             self.client.chat_postMessage(
                 channel=self.channel_id,
-                text="Mission Control is connected! Ready to help.",
+                text="Personal Assistant is connected! Ready to help.",
             )
             return True
         except SlackApiError as e:

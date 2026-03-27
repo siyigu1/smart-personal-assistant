@@ -138,7 +138,7 @@ collect_mode() {
     if [[ "$SETUP_MODE" != "daemon" && "$SETUP_MODE" != "cowork" ]]; then
         print_step "Step 2: Setup Mode"
 
-        echo "  How would you like to run Mission Control?"
+        echo "  How would you like to run Personal Assistant?"
         echo ""
         echo "    1. ${BOLD}Daemon mode${NC} (recommended)"
         echo "       A lightweight Python script runs in the background."
@@ -232,45 +232,72 @@ setup_slack_app() {
     echo ""
     echo -e "  ${BOLD}━━━ Slack App Setup ━━━${NC}"
     echo ""
-    echo "  Let's create a Slack App so Mission Control can read and post messages."
-    echo "  I'll walk you through each step."
+    echo "  Let's create a Slack App with all permissions pre-filled."
     echo ""
 
-    # Step 1: Create App
-    echo -e "  ${BOLD}Step 1/5: Create a Slack App${NC}"
-    echo "    → Opening Slack App creation page..."
-    open_url "https://api.slack.com/apps?new_app=1"
-    echo "    → Choose 'From scratch'"
-    echo "    → Name: 'Mission Control'"
-    echo "    → Select your workspace"
+    # Determine app name based on language
+    local app_name="Personal Assistant"
+    if [[ "$LANG_CODE" == "zh" ]]; then
+        app_name="智能管家"
+    fi
+
+    # Build the manifest JSON
+    local manifest
+    manifest=$(cat <<MANIFEST
+{
+  "display_information": {
+    "name": "${app_name}",
+    "description": "AI-powered personal life management assistant",
+    "background_color": "#2c2d30"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "${app_name}",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "channels:history",
+        "channels:read",
+        "chat:write",
+        "reactions:read",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "im:write"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
+MANIFEST
+)
+
+    # URL-encode the manifest for the creation URL
+    local encoded_manifest
+    encoded_manifest=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read()))" <<< "$manifest")
+
+    # Step 1: Create App from manifest
+    echo -e "  ${BOLD}Step 1/3: Create the Slack App${NC}"
+    echo "    → Opening Slack with all permissions pre-filled..."
+    echo "    → Just select your workspace and click 'Create'"
+    open_url "https://api.slack.com/apps?new_app=1&manifest_json=${encoded_manifest}"
     echo ""
     confirm "Done?" || true
 
-    # Step 2: Bot Permissions
+    # Step 2: Install + Copy Token
     echo ""
-    echo -e "  ${BOLD}Step 2/5: Add Bot Permissions${NC}"
-    echo "    → In your new app, go to 'OAuth & Permissions' (left sidebar)"
-    echo "    → Scroll to 'Bot Token Scopes'"
-    echo "    → Add these scopes:"
-    echo "      • channels:history  (read messages)"
-    echo "      • channels:read     (see channel info)"
-    echo "      • chat:write        (post messages)"
-    echo "      • reactions:read    (see reactions)"
-    echo ""
-    confirm "Done?" || true
-
-    # Step 3: Install
-    echo ""
-    echo -e "  ${BOLD}Step 3/5: Install to Workspace${NC}"
-    echo "    → Click 'Install to Workspace' at the top of OAuth & Permissions"
-    echo "    → Click 'Allow'"
-    echo ""
-    confirm "Done?" || true
-
-    # Step 4: Copy Token
-    echo ""
-    echo -e "  ${BOLD}Step 4/5: Copy Bot Token${NC}"
-    echo "    → You should see 'Bot User OAuth Token' (starts with xoxb-)"
+    echo -e "  ${BOLD}Step 2/3: Install & Copy Token${NC}"
+    echo "    → Go to 'OAuth & Permissions' in the left sidebar"
+    echo "    → Click 'Install to Workspace' → 'Allow'"
+    echo "    → Copy the 'Bot User OAuth Token' (starts with xoxb-)"
     echo ""
     ask "Paste your Bot Token:" SLACK_BOT_TOKEN
 
@@ -278,11 +305,11 @@ setup_slack_app() {
         print_warning "Token doesn't start with 'xoxb-' — make sure you copied the Bot token, not the User token"
     fi
 
-    # Step 5: Channel
+    # Step 3: Channel
     echo ""
-    echo -e "  ${BOLD}Step 5/5: Set Up Channel${NC}"
+    echo -e "  ${BOLD}Step 3/3: Set Up Channel${NC}"
     echo "    → Create a channel in Slack (e.g., #my-cowork) or use an existing one"
-    echo "    → Invite the bot: type /invite @Mission Control in the channel"
+    echo "    → Invite the bot: type /invite @${app_name} in the channel"
     echo "    → Get the Channel ID:"
     echo "      Right-click channel name → View channel details → scroll to bottom"
     echo ""
@@ -323,7 +350,7 @@ collect_profile() {
     detected_tz="${detected_tz:-America/New_York}"
 
     ask_default "Timezone:" "$detected_tz" TIMEZONE
-    ask_default "Notes folder:" "$HOME/Documents/Mission Control" NOTES_FOLDER
+    ask_default "Notes folder:" "$HOME/Documents/Personal Assistant" NOTES_FOLDER
 
     print_success "Profile: $USER_NAME | $TIMEZONE"
 }
@@ -499,7 +526,7 @@ collect_family() {
     ask "Their name:" FAMILY_NAME
     ask "Their Slack channel ID:" FAMILY_CHANNEL_ID
     ask_default "Their channel name:" "#${FAMILY_NAME,,}-cowork" FAMILY_CHANNEL_NAME
-    ask_default "Their notes folder:" "$(dirname "$NOTES_FOLDER")/Mission Control - $FAMILY_NAME" FAMILY_NOTES_FOLDER
+    ask_default "Their notes folder:" "$(dirname "$NOTES_FOLDER")/Personal Assistant - $FAMILY_NAME" FAMILY_NOTES_FOLDER
 
     print_success "Family: $FAMILY_NAME at $FAMILY_CHANNEL_NAME"
 }
@@ -877,7 +904,7 @@ setup_systemd() {
 
     cat > "$service_file" <<SERVICE
 [Unit]
-Description=Mission Control Daemon
+Description=Personal Assistant Daemon
 After=network.target
 
 [Service]

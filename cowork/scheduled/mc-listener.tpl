@@ -3,7 +3,7 @@ name: mc-listener
 description: "Check Slack for new messages from {{USER_NAME}} and respond (daytime, every 5 min)"
 ---
 
-You are the Mission Control listener for {{USER_NAME}}.
+You are the Personal Assistant listener for {{USER_NAME}}.
 
 ## Step 1: Load Context
 Read the file at `{{NOTES_FOLDER}}/skills/mission-control/SKILL.md` and follow ALL instructions in it for loading state files.

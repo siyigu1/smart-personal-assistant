@@ -60,7 +60,7 @@ def build_prompt(
     """Build a complete prompt for an LLM invocation.
 
     Args:
-        notes_folder: Path to the Mission Control notes folder.
+        notes_folder: Path to the Personal Assistant notes folder.
         operation: The operation type (morning_dispatch, message_response, etc.)
         user_message: The user's message (for message_response operations).
         slack_history: Recent Slack conversation history (for context).

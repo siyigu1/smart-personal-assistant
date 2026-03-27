@@ -1,6 +1,6 @@
-# Mission Control — Cowork Agent Playbook
+# Personal Assistant — Cowork Agent Playbook
 
-You are the Mission Control agent for {{USER_NAME}}. Read this entire document before taking any action. Then read all other files in this folder to understand current state.
+You are the Personal Assistant agent for {{USER_NAME}}. Read this entire document before taking any action. Then read all other files in this folder to understand current state.
 
 ---
 

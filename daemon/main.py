@@ -1,4 +1,4 @@
-"""Mission Control Daemon — main entry point.
+"""Personal Assistant Daemon — main entry point.
 
 Lightweight Python daemon that handles deterministic work (polling,
 reminders, scheduling) and invokes the LLM only when intelligence
@@ -36,10 +36,18 @@ def create_channel(config: Config):
         raise ValueError(f"Unknown channel provider: {config.channel_provider}")
 
 
-def create_llm(config: Config) -> LLMBridge:
-    """Create the appropriate LLM bridge based on config."""
+def create_llm(config: Config, channel) -> LLMBridge:
+    """Create the appropriate LLM bridge based on config.
+
+    The channel is passed so the LLM bridge can notify the user
+    via Slack when errors occur (e.g., 401 auth required).
+    """
     if config.llm_provider == "claude-cli":
-        return ClaudeCLI(timeout=180)
+        def on_llm_error(error_type, message):
+            """Post LLM errors to the user's Slack channel."""
+            channel.post(f"⚠️ *Action needed:* {message}")
+
+        return ClaudeCLI(timeout=180, on_error=on_llm_error)
     else:
         raise ValueError(f"Unknown LLM provider: {config.llm_provider}")
 
@@ -95,7 +103,7 @@ def run_operation(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Mission Control Daemon")
+    parser = argparse.ArgumentParser(description="Personal Assistant Daemon")
     parser.add_argument(
         "--config", "-c",
         help="Path to .mc-config.json",
@@ -110,14 +118,14 @@ def main():
 
     # Load configuration
     config = load_config(args.config)
-    print(f"[daemon] Mission Control for {config.user_name}")
+    print(f"[daemon] Personal Assistant for {config.user_name}")
     print(f"[daemon] Notes: {config.notes_folder}")
     print(f"[daemon] Channel: {config.channel_provider} ({config.slack_channel_name})")
     print(f"[daemon] LLM: {config.llm_provider}")
 
     # Create components
     channel = create_channel(config)
-    llm = create_llm(config)
+    llm = create_llm(config, channel)
     reminders = ReminderEngine(config.notes_folder)
     scheduler = Scheduler(config.timezone)
 

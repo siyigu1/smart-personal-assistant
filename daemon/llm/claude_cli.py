@@ -3,8 +3,17 @@
 import subprocess
 import tempfile
 import os
+from enum import Enum
 
 from .base import LLMBridge
+
+
+class ClaudeError(Enum):
+    """Known Claude CLI error types."""
+    AUTH_REQUIRED = "auth_required"       # 401 — needs manual login
+    RATE_LIMITED = "rate_limited"          # 429 — too many requests
+    UPDATE_REQUIRED = "update_required"   # CLI needs update
+    UNKNOWN = "unknown"
 
 
 class ClaudeCLI(LLMBridge):
@@ -17,8 +26,36 @@ class ClaudeCLI(LLMBridge):
     with long prompts containing markdown, code blocks, etc.
     """
 
-    def __init__(self, timeout: int = 180):
+    # Error patterns to detect in stderr/stdout
+    AUTH_PATTERNS = [
+        "401",
+        "unauthorized",
+        "auth",
+        "login",
+        "sign in",
+        "session expired",
+        "token expired",
+        "not authenticated",
+        "authentication required",
+    ]
+
+    UPDATE_PATTERNS = [
+        "update required",
+        "upgrade",
+        "new version available",
+        "please update",
+    ]
+
+    def __init__(self, timeout: int = 180, on_error=None):
+        """
+        Args:
+            timeout: Max seconds to wait for Claude CLI response.
+            on_error: Optional callback fn(error_type: ClaudeError, message: str)
+                      called when a recoverable error is detected. The daemon
+                      uses this to post Slack notifications.
+        """
         self.timeout = timeout
+        self.on_error = on_error
 
     def invoke(self, prompt: str) -> str:
         """Invoke claude -p with the given prompt."""
@@ -43,7 +80,31 @@ class ClaudeCLI(LLMBridge):
             )
 
             if result.returncode != 0:
-                print(f"[claude] CLI error (exit {result.returncode}): {result.stderr}")
+                error_text = (result.stderr + result.stdout).lower()
+                error_type = self._classify_error(error_text)
+
+                if error_type == ClaudeError.AUTH_REQUIRED:
+                    msg = (
+                        "Claude CLI needs you to log in again. "
+                        "Go to your computer and run: claude login"
+                    )
+                    print(f"[claude] Auth required — notifying user")
+                    self._notify_error(ClaudeError.AUTH_REQUIRED, msg)
+                elif error_type == ClaudeError.UPDATE_REQUIRED:
+                    msg = (
+                        "Claude CLI has an update available. "
+                        "Go to your computer and run: claude update"
+                    )
+                    print(f"[claude] Update required — notifying user")
+                    self._notify_error(ClaudeError.UPDATE_REQUIRED, msg)
+                else:
+                    print(f"[claude] CLI error (exit {result.returncode}): {result.stderr}")
+                    self._notify_error(
+                        ClaudeError.UNKNOWN,
+                        f"Claude CLI error (exit code {result.returncode}). "
+                        f"Check the daemon logs."
+                    )
+
                 return ""
 
             return result.stdout.strip()
@@ -56,6 +117,23 @@ class ClaudeCLI(LLMBridge):
             return ""
         finally:
             os.unlink(prompt_file)
+
+    def _classify_error(self, error_text: str) -> ClaudeError:
+        """Classify an error based on stderr/stdout content."""
+        for pattern in self.AUTH_PATTERNS:
+            if pattern in error_text:
+                return ClaudeError.AUTH_REQUIRED
+
+        for pattern in self.UPDATE_PATTERNS:
+            if pattern in error_text:
+                return ClaudeError.UPDATE_REQUIRED
+
+        return ClaudeError.UNKNOWN
+
+    def _notify_error(self, error_type: ClaudeError, message: str) -> None:
+        """Send error notification via the callback."""
+        if self.on_error:
+            self.on_error(error_type, message)
 
     def test_connection(self) -> bool:
         """Test Claude CLI is available and logged in."""

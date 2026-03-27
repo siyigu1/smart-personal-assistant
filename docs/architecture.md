@@ -2,7 +2,7 @@
 
 ## Overview
 
-Mission Control uses a hybrid architecture: a lightweight Python daemon handles all deterministic work (polling, reminders, scheduling) with zero LLM tokens, and invokes the AI only when intelligence is needed (responding to messages, composing dispatches, classifying tasks).
+Personal Assistant uses a hybrid architecture: a lightweight Python daemon handles all deterministic work (polling, reminders, scheduling) with zero LLM tokens, and invokes the AI only when intelligence is needed (responding to messages, composing dispatches, classifying tasks).
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -54,9 +54,9 @@ Adding a new LLM or channel means implementing one class with 2-3 methods.
 
 ## Comparison with OpenClaw
 
-Mission Control shares the same architectural insight as OpenClaw (335K+ stars):
+Personal Assistant shares the same architectural insight as OpenClaw (335K+ stars):
 
-| Layer | Mission Control | OpenClaw |
+| Layer | Personal Assistant | OpenClaw |
 |---|---|---|
 | Deterministic daemon | Python, ~800 LOC | TypeScript Gateway, ~50K LOC |
 | LLM invocation | `claude -p` (subscription) | Pi agent (API keys) |
@@ -64,4 +64,4 @@ Mission Control shares the same architectural insight as OpenClaw (335K+ stars):
 | State | Markdown files | Sessions + DB |
 | Scale | Personal/family | Multi-user platform |
 
-Same pattern, radically different scale. Mission Control is the "personal-scale OpenClaw."
+Same pattern, radically different scale. Personal Assistant is the "personal-scale OpenClaw."

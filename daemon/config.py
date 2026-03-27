@@ -1,4 +1,4 @@
-"""Configuration loader for Mission Control daemon."""
+"""Configuration loader for Personal Assistant daemon."""
 
 import json
 import os
@@ -69,7 +69,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
     if config_path is None:
         # Search common locations
         candidates = [
-            os.path.expanduser("~/Documents/Mission Control/.mc-config.json"),
+            os.path.expanduser("~/Documents/Personal Assistant/.mc-config.json"),
             os.path.expanduser("~/Documents/mission-control/.mc-config.json"),
         ]
         for c in candidates:
