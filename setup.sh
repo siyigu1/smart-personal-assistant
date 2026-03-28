@@ -635,11 +635,21 @@ install_deps() {
 
     print_step "Installing Dependencies"
 
-    if python3 -m pip install -r "$SCRIPT_DIR/daemon/requirements.txt" --quiet 2>/dev/null; then
+    local venv_dir="$SCRIPT_DIR/.venv"
+
+    # Create venv if it doesn't exist
+    if [[ ! -d "$venv_dir" ]]; then
+        echo "  Creating virtual environment..."
+        python3 -m venv "$venv_dir"
+    fi
+    print_success "Virtual environment: .venv/"
+
+    # Install deps in venv
+    if "$venv_dir/bin/pip" install -r "$SCRIPT_DIR/daemon/requirements.txt" --quiet 2>/dev/null; then
         print_success "Python dependencies installed"
     else
         print_warning "Could not install automatically. Run manually:"
-        echo "    pip install -r $SCRIPT_DIR/daemon/requirements.txt"
+        echo "    $venv_dir/bin/pip install -r $SCRIPT_DIR/daemon/requirements.txt"
     fi
 
     # Create/update .env
@@ -742,7 +752,7 @@ setup_daemon_service() {
         if confirm "Send a test message to $SLACK_CHANNEL_NAME to verify Slack is working?"; then
             echo "  Sending test message..."
             local test_result
-            test_result=$(python3 -c "
+            test_result=$("$SCRIPT_DIR/.venv/bin/python3" -c "
 from slack_sdk import WebClient
 client = WebClient(token='$SLACK_BOT_TOKEN')
 try:
@@ -787,7 +797,7 @@ setup_launchd() {
     <string>com.mission-control.daemon</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$(which python3)</string>
+        <string>$SCRIPT_DIR/.venv/bin/python3</string>
         <string>-m</string>
         <string>daemon.main</string>
     </array>
@@ -833,7 +843,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$(which python3) -m daemon.main
+ExecStart=$SCRIPT_DIR/.venv/bin/python3 -m daemon.main
 WorkingDirectory=$SCRIPT_DIR
 Environment=MC_CONFIG=$NOTES_FOLDER/.mc-config.json
 Environment=SLACK_BOT_TOKEN=$SLACK_BOT_TOKEN
