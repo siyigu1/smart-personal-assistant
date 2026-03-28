@@ -11,6 +11,7 @@ import time
 import signal
 import argparse
 from datetime import datetime
+from typing import Optional
 
 from .config import load_config, Config
 from .channels.slack import SlackChannel
@@ -59,13 +60,38 @@ def create_llm(config: Config, channel) -> LLMBridge:
     via Slack when errors occur (e.g., 401 auth required).
     """
     if config.llm_provider == "claude-cli":
-        def on_llm_error(error_type, message):
-            """Post LLM errors to the user's Slack channel."""
-            channel.post(f"⚠️ *Action needed:* {message}")
-
-        return ClaudeCLI(timeout=180, on_error=on_llm_error)
+        return ClaudeCLI(timeout=180, on_error=_llm_error_notifier(channel))
     else:
         raise ValueError(f"Unknown LLM provider: {config.llm_provider}")
+
+
+# Tracks which error types have been notified to avoid spamming Slack
+_notified_errors: set = set()
+
+
+def _llm_error_notifier(channel):
+    """Create an error callback that notifies Slack once per error type."""
+    def on_error(error_type, message):
+        if error_type.value in _notified_errors:
+            return
+        _notified_errors.add(error_type.value)
+        channel.post(f"⚠️ *Action needed:* {message}")
+    return on_error
+
+
+def notify_llm_failure(channel, operation: str, activity=None):
+    """Notify user via Slack that an LLM call failed. Only once."""
+    key = f"llm_failure_{operation}"
+    if key in _notified_errors:
+        return
+    _notified_errors.add(key)
+    channel.post(
+        f"⚠️ I tried to run *{operation}* but didn't get a response from the AI. "
+        f"This might be a temporary issue — I'll keep trying. "
+        f"If it persists, check `./status.sh errors` for details."
+    )
+    if activity:
+        activity.llm_error(operation, "Empty response from LLM")
 
 
 def run_operation(
@@ -74,6 +100,7 @@ def run_operation(
     config: Config,
     operation: str,
     user_message: str = "",
+    activity: Optional[ActivityLog] = None,
 ):
     """Run an LLM-powered operation and post results.
 
@@ -99,11 +126,17 @@ def run_operation(
 
     # Invoke the LLM
     print(f"[daemon] Invoking LLM for: {operation}")
+    t0 = time.time()
     raw_response = llm.invoke(prompt)
+    duration = time.time() - t0
 
     if not raw_response:
         print(f"[daemon] Empty response from LLM for: {operation}")
+        notify_llm_failure(channel, operation, activity)
         return
+
+    # Clear the failure flag for this operation on success
+    _notified_errors.discard(f"llm_failure_{operation}")
 
     # Parse structured response
     response = llm.parse_response(raw_response)
@@ -116,6 +149,15 @@ def run_operation(
     if response.file_updates:
         updated = apply_updates(response, config.notes_folder)
         print(f"[daemon] Applied {updated} file update(s)")
+
+    # Log the call
+    if activity:
+        activity.llm_call(
+            operation=operation,
+            prompt_tokens=len(prompt) // 4,  # rough estimate
+            response_preview=response.slack_message[:200] if response.slack_message else "",
+            duration_sec=duration,
+        )
 
 
 def main():
@@ -166,7 +208,7 @@ def main():
             f"your schedule and projects. Takes about 15 minutes.\n\n"
             f"Ready to get started? (just reply 'yes' or 'let's go')"
         )
-        run_operation(llm, channel, config, "onboarding")
+        run_operation(llm, channel, config, "onboarding", activity=activity)
 
     # Cross-tasks (optional)
     cross_tasks = None
@@ -216,15 +258,12 @@ def main():
                          new_msg.text if new_msg else "")
             if new_msg:
                 channel.post("Got it — working on this now")
-                t0 = time.time()
                 run_operation(
                     llm, channel, config,
                     "message_response",
                     user_message=new_msg.text,
+                    activity=activity,
                 )
-                activity.llm_call("message_response",
-                                  duration_sec=time.time() - t0,
-                                  response_preview="(posted to Slack)")
             last_message_check = now
 
         # 3. Run automations from Automations.md
