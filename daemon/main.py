@@ -21,6 +21,7 @@ from .cross_tasks import CrossTaskChecker
 from .automations import check_and_run as check_automations
 from .context_builder import build_prompt
 from .file_updater import apply_updates
+from .activity_log import ActivityLog
 
 
 def needs_onboarding(config: Config) -> bool:
@@ -133,6 +134,11 @@ def main():
 
     # Load configuration
     config = load_config(args.config)
+
+    # Set up activity logging
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs")
+    activity = ActivityLog(log_dir, ttl_days=7)
+
     print(f"[daemon] Personal Assistant for {config.user_name}")
     print(f"[daemon] Notes: {config.notes_folder}")
     print(f"[daemon] Channel: {config.channel_provider} ({config.slack_channel_name})")
@@ -143,9 +149,17 @@ def main():
     llm = create_llm(config, channel)
     reminders = ReminderEngine(config.notes_folder)
 
+    activity.startup(config.user_name, config.notes_folder)
+
+    # Clean up old logs on startup
+    deleted = activity.cleanup_old_logs()
+    if deleted > 0:
+        print(f"[daemon] Cleaned up {deleted} old log file(s)")
+
     # Check if onboarding is needed (first run)
     if needs_onboarding(config):
         print("[daemon] New user detected — starting onboarding conversation")
+        activity.log("onboarding", "New user detected, starting onboarding")
         channel.post(
             f"Hi {config.user_name}! I'm your Personal Assistant. "
             f"Let's set up your system — I'll ask a few questions about "
@@ -168,6 +182,7 @@ def main():
     def handle_signal(signum, frame):
         nonlocal running
         print(f"\n[daemon] Received signal {signum}, shutting down...")
+        activity.shutdown()
         running = False
 
     signal.signal(signal.SIGINT, handle_signal)
@@ -175,8 +190,7 @@ def main():
 
     # Polling intervals
     REMINDER_INTERVAL = 60       # Check reminders every 60s
-    DAY_POLL_INTERVAL = 300      # Check messages every 5 min (daytime)
-    NIGHT_POLL_INTERVAL = 900    # Check messages every 15 min (night)
+    POLL_INTERVAL = 300          # Check messages every 5 min
 
     last_reminder_check = 0
     last_message_check = 0
@@ -189,25 +203,34 @@ def main():
 
         # 1. Fire due reminders (every minute)
         if now - last_reminder_check >= REMINDER_INTERVAL:
-            reminders.check_and_fire(channel)
+            fired = reminders.check_and_fire(channel)
+            if fired > 0:
+                for _ in range(fired):
+                    activity.reminder_fired("(see reminders.json)")
             last_reminder_check = now
 
         # 2. Check for new messages (every 5 min)
-        if now - last_message_check >= DAY_POLL_INTERVAL:
+        if now - last_message_check >= POLL_INTERVAL:
             new_msg = channel.check_for_new_message()
+            activity.poll(new_msg is not None,
+                         new_msg.text if new_msg else "")
             if new_msg:
-                # Acknowledge immediately
                 channel.post("Got it — working on this now")
-                # Invoke LLM for response
+                t0 = time.time()
                 run_operation(
                     llm, channel, config,
                     "message_response",
                     user_message=new_msg.text,
                 )
+                activity.llm_call("message_response",
+                                  duration_sec=time.time() - t0,
+                                  response_preview="(posted to Slack)")
             last_message_check = now
 
         # 3. Run automations from Automations.md
-        check_automations(config.notes_folder, channel, llm, config)
+        auto_count = check_automations(config.notes_folder, channel, llm, config)
+        if auto_count > 0:
+            activity.automation_fired(f"{auto_count} automation(s)", "mixed")
 
         # 4. Check cross-tasks (if family extension enabled)
         if cross_tasks:
@@ -216,6 +239,7 @@ def main():
         # For --once mode (testing)
         if args.once:
             print("[daemon] --once mode, exiting after first cycle")
+            activity.log("info", "--once mode, exiting")
             break
 
         # Sleep briefly to avoid busy-waiting
