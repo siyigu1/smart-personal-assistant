@@ -3,10 +3,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VERSION="2.0.0"
-UPDATE_MODE=false
-SETUP_MODE="daemon"  # daemon or cowork
+SETUP_MODE="daemon"
 
-# ─── Colors & Helpers ───────────────────────────────────────────────
+# ─── Defaults (overridden by existing config if found) ──────────
+
+USER_NAME=""
+SLACK_BOT_TOKEN=""
+SLACK_CHANNEL_ID=""
+SLACK_CHANNEL_NAME=""
+TIMEZONE=""
+NOTES_FOLDER=""
+LANG_CODE="en"
+LLM_PROVIDER="claude-cli"
+CHANNEL_PROVIDER="slack"
+ENABLE_FAMILY=false
+FAMILY_NAME=""
+FAMILY_CHANNEL_ID=""
+FAMILY_CHANNEL_NAME=""
+FAMILY_NOTES_FOLDER=""
+EXISTING_CONFIG=""
+
+# ─── Colors & Helpers ───────────────────────────────────────────
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -40,6 +57,12 @@ confirm() {
     [[ -z "$ans" || "$ans" =~ ^[Yy] ]]
 }
 
+confirm_no() {
+    local ans
+    read -rp "$(echo -e "  ${BOLD}$1${NC} ${DIM}[y/N]${NC} ")" ans
+    [[ "$ans" =~ ^[Yy] ]]
+}
+
 open_url() {
     local url="$1"
     echo -e "  ${DIM}→ $url${NC}"
@@ -50,7 +73,6 @@ open_url() {
     fi
 }
 
-# Cross-platform sed -i
 do_sed() {
     if [[ "$(uname)" == "Darwin" ]]; then
         sed -i '' "$@"
@@ -59,47 +81,143 @@ do_sed() {
     fi
 }
 
-# ─── Banner ─────────────────────────────────────────────────────────
+# Helper: extract a string value from JSON (no jq dependency)
+json_val() {
+    local key="$1" file="$2"
+    python3 -c "import json; print(json.load(open('$file')).get('$key',''))" 2>/dev/null || echo ""
+}
+
+# ─── Banner ─────────────────────────────────────────────────────
 
 show_banner() {
     echo ""
     echo -e "${BOLD}╔═══════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║   Smart Personal Assistant                      ║${NC}"
+    echo -e "${BOLD}║   Smart Personal Assistant                        ║${NC}"
     echo -e "${BOLD}║   v${VERSION}                                            ║${NC}"
-    echo -e "${BOLD}║                                                   ║${NC}"
-    echo -e "${BOLD}║   AI-powered personal life management system      ║${NC}"
     echo -e "${BOLD}╚═══════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
-# ─── Parse CLI Args ─────────────────────────────────────────────────
+# ─── Parse CLI Args ─────────────────────────────────────────────
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --mode)
-                SETUP_MODE="$2"
-                shift 2
-                ;;
-            --quick)
-                QUICK_MODE=true
-                shift
-                ;;
-            *)
-                shift
-                ;;
+            --mode) SETUP_MODE="$2"; shift 2 ;;
+            *) shift ;;
         esac
     done
 }
 
-QUICK_MODE=false
+# ─── Detect Existing Setup ──────────────────────────────────────
 
-# ─── Step 1: System Check ───────────────────────────────────────────
+detect_existing() {
+    # Search for existing .mc-config.json
+    local home="$HOME"
+    local candidates=(
+        "$home/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal Assistant/.mc-config.json"
+        "$home/Library/Mobile Documents/com~apple~CloudDocs/Documents/Personal Assistant/.mc-config.json"
+        "$home/Documents/Personal Assistant/.mc-config.json"
+        "$home/Dropbox/Personal Assistant/.mc-config.json"
+        "$home/Google Drive/Personal Assistant/.mc-config.json"
+        "$home/OneDrive/Personal Assistant/.mc-config.json"
+    )
+
+    local found=()
+    for c in "${candidates[@]}"; do
+        if [[ -f "$c" ]]; then
+            found+=("$c")
+        fi
+    done
+
+    # Also search ~/Documents subdirs
+    if [[ -d "$home/Documents" ]]; then
+        for d in "$home/Documents"/*/; do
+            if [[ -f "${d}.mc-config.json" ]]; then
+                local already=false
+                for f in "${found[@]+"${found[@]}"}"; do
+                    if [[ "$f" == "${d}.mc-config.json" ]]; then
+                        already=true
+                        break
+                    fi
+                done
+                if [[ "$already" == false ]]; then
+                    found+=("${d}.mc-config.json")
+                fi
+            fi
+        done
+    fi
+
+    if [[ ${#found[@]} -eq 0 ]]; then
+        return
+    fi
+
+    print_step "Existing Setup Found"
+
+    for i in "${!found[@]}"; do
+        local cfg="${found[$i]}"
+        local name
+        name=$(json_val "user_name" "$cfg")
+        local folder
+        folder=$(dirname "$cfg")
+        echo "    $((i+1)). ${name:-Unknown} — $folder"
+    done
+    echo "    $((${#found[@]}+1)). Start fresh"
+    echo ""
+
+    ask_default "Choice:" "1" existing_choice
+
+    local idx=$((existing_choice - 1))
+    if [[ $idx -lt ${#found[@]} ]]; then
+        EXISTING_CONFIG="${found[$idx]}"
+        load_existing_config
+    fi
+}
+
+load_existing_config() {
+    local cfg="$EXISTING_CONFIG"
+    echo ""
+    print_success "Loading previous setup..."
+
+    USER_NAME=$(json_val "user_name" "$cfg")
+    SLACK_CHANNEL_ID=$(json_val "slack_channel_id" "$cfg")
+    SLACK_CHANNEL_NAME=$(json_val "slack_channel_name" "$cfg")
+    TIMEZONE=$(json_val "timezone" "$cfg")
+    NOTES_FOLDER=$(json_val "notes_folder" "$cfg")
+    LANG_CODE=$(json_val "language" "$cfg")
+    LLM_PROVIDER=$(json_val "llm_provider" "$cfg")
+    CHANNEL_PROVIDER=$(json_val "channel_provider" "$cfg")
+    SETUP_MODE=$(json_val "setup_mode" "$cfg")
+
+    # Load bot token from .env if it exists
+    local env_file="$NOTES_FOLDER/.env"
+    if [[ -f "$env_file" ]]; then
+        SLACK_BOT_TOKEN=$(grep '^SLACK_BOT_TOKEN=' "$env_file" 2>/dev/null | cut -d= -f2- || echo "")
+    fi
+
+    # Load family settings
+    local family_val
+    family_val=$(python3 -c "import json; print(json.load(open('$cfg')).get('family', False))" 2>/dev/null || echo "False")
+    if [[ "$family_val" == "True" ]]; then
+        ENABLE_FAMILY=true
+        FAMILY_NAME=$(json_val "family_name" "$cfg")
+        FAMILY_CHANNEL_ID=$(json_val "family_channel_id" "$cfg")
+        FAMILY_NOTES_FOLDER=$(json_val "family_notes_folder" "$cfg")
+        FAMILY_CHANNEL_NAME="#${FAMILY_NAME,,}-cowork"
+    fi
+
+    echo "    Name:    $USER_NAME"
+    echo "    Channel: $SLACK_CHANNEL_NAME ($SLACK_CHANNEL_ID)"
+    echo "    Folder:  $NOTES_FOLDER"
+    echo "    Lang:    $LANG_CODE"
+    echo ""
+}
+
+# ─── Step 1: System Check ──────────────────────────────────────
 
 check_system() {
-    print_step "Step 1: System Check"
+    print_step "System Check"
 
-    # Python
     if command -v python3 &>/dev/null; then
         local pyver
         pyver=$(python3 --version 2>&1 | awk '{print $2}')
@@ -110,14 +228,12 @@ check_system() {
         exit 1
     fi
 
-    # pip
     if python3 -m pip --version &>/dev/null 2>&1; then
         print_success "pip available"
     else
         print_warning "pip not found — you'll need it to install dependencies"
     fi
 
-    # Claude CLI (for daemon mode)
     if [[ "$SETUP_MODE" == "daemon" ]]; then
         if command -v claude &>/dev/null; then
             local clver
@@ -134,24 +250,14 @@ check_system() {
     fi
 }
 
-# ─── Step 2: Setup Mode ─────────────────────────────────────────────
+# ─── Setup Mode ─────────────────────────────────────────────────
 
 collect_mode() {
     if [[ "$SETUP_MODE" != "daemon" && "$SETUP_MODE" != "cowork" ]]; then
-        print_step "Step 2: Setup Mode"
+        print_step "Setup Mode"
 
-        echo "  How would you like to run Personal Assistant?"
-        echo ""
-        echo "    1. ${BOLD}Daemon mode${NC} (recommended)"
-        echo "       A lightweight Python script runs in the background."
-        echo "       Handles polling + reminders with zero AI tokens."
-        echo "       Only calls the AI when intelligence is needed."
-        echo "       Token usage: ~15-20K/day"
-        echo ""
-        echo "    2. ${BOLD}Cowork mode${NC}"
-        echo "       Everything runs through Claude Desktop scheduled tasks."
-        echo "       Simpler setup, but uses more tokens."
-        echo "       Token usage: ~60-80K/day"
+        echo "    1. ${BOLD}Daemon mode${NC} (recommended) — ~15-20K tokens/day"
+        echo "    2. ${BOLD}Cowork mode${NC} — ~60-80K tokens/day"
         echo ""
 
         ask_default "Choice:" "1" mode_choice
@@ -165,15 +271,20 @@ collect_mode() {
     print_success "Mode: $SETUP_MODE"
 }
 
-# ─── Step 3: Language ────────────────────────────────────────────────
+# ─── Language ───────────────────────────────────────────────────
 
 collect_language() {
-    print_step "Step 3: Language / 语言"
+    print_step "Language / 语言"
+
+    local default_lang="1"
+    if [[ "$LANG_CODE" == "zh" ]]; then
+        default_lang="2"
+    fi
 
     echo "    1. English"
     echo "    2. 中文"
 
-    ask_default "Choice:" "1" lang_choice
+    ask_default "Choice:" "$default_lang" lang_choice
 
     if [[ "$lang_choice" == "2" ]]; then
         LANG_CODE="zh"
@@ -184,9 +295,7 @@ collect_language() {
     fi
 }
 
-# ─── Step 4: LLM Provider ───────────────────────────────────────────
-
-LLM_PROVIDER="claude-cli"
+# ─── LLM Provider ──────────────────────────────────────────────
 
 collect_llm() {
     if [[ "$SETUP_MODE" == "cowork" ]]; then
@@ -194,7 +303,7 @@ collect_llm() {
         return
     fi
 
-    print_step "Step 4: LLM Provider"
+    print_step "LLM Provider"
 
     echo "    1. Claude (Anthropic) — uses Pro/Max subscription via CLI (recommended)"
     echo "    2. Ollama — free, runs locally (coming soon)"
@@ -203,18 +312,30 @@ collect_llm() {
     ask_default "Choice:" "1" llm_choice
     LLM_PROVIDER="claude-cli"
 
-    # Validate Claude CLI connection
     if command -v claude &>/dev/null; then
         print_success "Claude CLI is available"
     fi
 }
 
-# ─── Step 5: Chat Channel ───────────────────────────────────────────
-
-SLACK_BOT_TOKEN=""
+# ─── Chat Channel ──────────────────────────────────────────────
 
 collect_channel() {
-    print_step "Step 5: Chat Channel"
+    print_step "Chat Channel"
+
+    # If we have existing Slack config, offer to keep it
+    if [[ -n "$SLACK_CHANNEL_ID" && -n "$SLACK_BOT_TOKEN" ]]; then
+        echo "  Current Slack configuration:"
+        echo "    Channel: $SLACK_CHANNEL_NAME ($SLACK_CHANNEL_ID)"
+        echo "    Bot Token: ${SLACK_BOT_TOKEN:0:10}...${SLACK_BOT_TOKEN: -4}"
+        echo ""
+
+        if ! confirm_no "Change Slack configuration?"; then
+            print_success "Keeping existing Slack configuration"
+            CHANNEL_PROVIDER="slack"
+            return
+        fi
+        echo ""
+    fi
 
     echo "    1. Slack (recommended)"
     echo "    2. Discord (coming soon)"
@@ -234,16 +355,12 @@ setup_slack_app() {
     echo ""
     echo -e "  ${BOLD}━━━ Slack App Setup ━━━${NC}"
     echo ""
-    echo "  Let's create a Slack App with all permissions pre-filled."
-    echo ""
 
-    # Determine app name based on language
     local app_name="Personal Assistant"
     if [[ "$LANG_CODE" == "zh" ]]; then
         app_name="智能管家"
     fi
 
-    # Build the manifest JSON
     local manifest
     manifest=$(cat <<MANIFEST
 {
@@ -282,11 +399,9 @@ setup_slack_app() {
 MANIFEST
 )
 
-    # URL-encode the manifest for the creation URL
     local encoded_manifest
     encoded_manifest=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read()))" <<< "$manifest")
 
-    # Step 1: Create App from manifest
     echo -e "  ${BOLD}Step 1/3: Create the Slack App${NC}"
     echo "    → Opening Slack with all permissions pre-filled..."
     echo "    → Just select your workspace and click 'Create'"
@@ -294,7 +409,6 @@ MANIFEST
     echo ""
     confirm "Done?" || true
 
-    # Step 2: Install + Copy Token
     echo ""
     echo -e "  ${BOLD}Step 2/3: Install & Copy Token${NC}"
     echo "    → Go to 'OAuth & Permissions' in the left sidebar"
@@ -307,13 +421,11 @@ MANIFEST
         print_warning "Token doesn't start with 'xoxb-' — make sure you copied the Bot token, not the User token"
     fi
 
-    # Step 3: Channel
     echo ""
     echo -e "  ${BOLD}Step 3/3: Set Up Channel${NC}"
-    echo "    → Create a channel in Slack (e.g., #my-cowork) or use an existing one"
-    echo "    → Invite the bot: type /invite @${app_name} in the channel"
-    echo "    → Get the Channel ID:"
-    echo "      Right-click channel name → View channel details → scroll to bottom"
+    echo "    → Create a channel (e.g., #my-cowork) or use an existing one"
+    echo "    → Invite the bot: /invite @${app_name}"
+    echo "    → Get Channel ID: right-click channel → View details → bottom"
     echo ""
     ask "Channel ID (starts with C):" SLACK_CHANNEL_ID
     ask_default "Channel name:" "#my-cowork" SLACK_CHANNEL_NAME
@@ -327,131 +439,143 @@ setup_slack_cowork() {
     echo "  For Cowork mode, Claude uses Slack MCP (built-in)."
     echo "  You just need your channel info."
     echo ""
-    echo "  To find your Channel ID:"
-    echo "    Right-click channel → View channel details → scroll to bottom"
-    echo ""
     ask "Slack Channel ID (starts with C):" SLACK_CHANNEL_ID
     ask_default "Slack channel name:" "#my-cowork" SLACK_CHANNEL_NAME
     CHANNEL_PROVIDER="slack"
 }
 
-# ─── Step 6: User Profile ───────────────────────────────────────────
+# ─── User Profile ──────────────────────────────────────────────
 
 collect_profile() {
-    print_step "Step 6: User Profile"
+    print_step "User Profile"
 
-    ask "Your name:" USER_NAME
+    local default_name="${USER_NAME:-}"
+    if [[ -n "$default_name" ]]; then
+        ask_default "Your name:" "$default_name" USER_NAME
+    else
+        ask "Your name:" USER_NAME
+    fi
 
-    # Timezone auto-detect
+    # Timezone
     local detected_tz=""
     if [[ "$(uname)" == "Darwin" ]]; then
         detected_tz=$(readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||' || true)
     elif [[ -f /etc/timezone ]]; then
         detected_tz=$(cat /etc/timezone 2>/dev/null || true)
     fi
-    detected_tz="${detected_tz:-America/New_York}"
+    local default_tz="${TIMEZONE:-${detected_tz:-America/New_York}}"
 
-    ask_default "Timezone:" "$detected_tz" TIMEZONE
+    ask_default "Timezone:" "$default_tz" TIMEZONE
 
-    # Notes folder — detect cloud storage options
-    echo ""
-    echo "  Where should your files be stored?"
-    echo "  Using a cloud folder enables mobile access (Obsidian) and family sharing."
-    echo ""
-
-    local folder_options=()
-    local folder_labels=()
-    local default_choice=1
-    local option_num=1
-
-    # Detect available cloud storage locations
-    local icloud_obsidian="$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents"
-    local icloud_docs="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Documents"
-    local dropbox="$HOME/Dropbox"
-    local gdrive="$HOME/Google Drive"
-    local onedrive="$HOME/OneDrive"
-
-    if [[ -d "$icloud_obsidian" ]]; then
-        folder_options+=("$icloud_obsidian/Personal Assistant")
-        folder_labels+=("iCloud (Obsidian vault) — best for mobile access + family sharing")
-        default_choice=$option_num
-        option_num=$((option_num + 1))
-    fi
-    if [[ -d "$icloud_docs" ]]; then
-        folder_options+=("$icloud_docs/Personal Assistant")
-        folder_labels+=("iCloud Documents — syncs across Apple devices")
-        option_num=$((option_num + 1))
-    fi
-    if [[ -d "$dropbox" ]]; then
-        folder_options+=("$dropbox/Personal Assistant")
-        folder_labels+=("Dropbox — cross-platform sync")
-        option_num=$((option_num + 1))
-    fi
-    if [[ -d "$gdrive" ]]; then
-        folder_options+=("$gdrive/Personal Assistant")
-        folder_labels+=("Google Drive — cross-platform sync")
-        option_num=$((option_num + 1))
-    fi
-    if [[ -d "$onedrive" ]]; then
-        folder_options+=("$onedrive/Personal Assistant")
-        folder_labels+=("OneDrive — cross-platform sync")
-        option_num=$((option_num + 1))
-    fi
-
-    # Always offer local option
-    folder_options+=("$HOME/Documents/Personal Assistant")
-    folder_labels+=("Local only — ~/Documents/Personal Assistant")
-    option_num=$((option_num + 1))
-
-    # Always offer custom
-    folder_options+=("custom")
-    folder_labels+=("Custom path")
-
-    for i in "${!folder_labels[@]}"; do
-        echo "    $((i+1)). ${folder_labels[$i]}"
-    done
-    echo ""
-
-    ask_default "Choice:" "$default_choice" folder_choice
-
-    local idx=$((folder_choice - 1))
-    if [[ "${folder_options[$idx]}" == "custom" ]]; then
-        ask "Enter full path:" NOTES_FOLDER
+    # Notes folder
+    if [[ -n "$NOTES_FOLDER" ]]; then
+        # Already have a folder from existing config
+        ask_default "Notes folder:" "$NOTES_FOLDER" NOTES_FOLDER
     else
-        NOTES_FOLDER="${folder_options[$idx]}"
+        # Detect cloud storage options
+        echo ""
+        echo "  Where should your files be stored?"
+        echo "  Using a cloud folder enables mobile access (Obsidian) and family sharing."
+        echo ""
+
+        local folder_options=()
+        local folder_labels=()
+        local default_choice=1
+        local option_num=1
+
+        local icloud_obsidian="$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents"
+        local icloud_docs="$HOME/Library/Mobile Documents/com~apple~CloudDocs/Documents"
+        local dropbox="$HOME/Dropbox"
+        local gdrive="$HOME/Google Drive"
+        local onedrive="$HOME/OneDrive"
+
+        if [[ -d "$icloud_obsidian" ]]; then
+            folder_options+=("$icloud_obsidian/Personal Assistant")
+            folder_labels+=("iCloud (Obsidian vault) — best for mobile + family sharing")
+            default_choice=$option_num
+            option_num=$((option_num + 1))
+        fi
+        if [[ -d "$icloud_docs" ]]; then
+            folder_options+=("$icloud_docs/Personal Assistant")
+            folder_labels+=("iCloud Documents — syncs across Apple devices")
+            option_num=$((option_num + 1))
+        fi
+        if [[ -d "$dropbox" ]]; then
+            folder_options+=("$dropbox/Personal Assistant")
+            folder_labels+=("Dropbox — cross-platform sync")
+            option_num=$((option_num + 1))
+        fi
+        if [[ -d "$gdrive" ]]; then
+            folder_options+=("$gdrive/Personal Assistant")
+            folder_labels+=("Google Drive — cross-platform sync")
+            option_num=$((option_num + 1))
+        fi
+        if [[ -d "$onedrive" ]]; then
+            folder_options+=("$onedrive/Personal Assistant")
+            folder_labels+=("OneDrive — cross-platform sync")
+            option_num=$((option_num + 1))
+        fi
+
+        folder_options+=("$HOME/Documents/Personal Assistant")
+        folder_labels+=("Local only — ~/Documents/Personal Assistant")
+        option_num=$((option_num + 1))
+
+        folder_options+=("custom")
+        folder_labels+=("Custom path")
+
+        for i in "${!folder_labels[@]}"; do
+            echo "    $((i+1)). ${folder_labels[$i]}"
+        done
+        echo ""
+
+        ask_default "Choice:" "$default_choice" folder_choice
+
+        local idx=$((folder_choice - 1))
+        if [[ "${folder_options[$idx]}" == "custom" ]]; then
+            ask "Enter full path:" NOTES_FOLDER
+        else
+            NOTES_FOLDER="${folder_options[$idx]}"
+        fi
     fi
 
     print_success "Profile: $USER_NAME | $TIMEZONE"
     print_success "Notes folder: $NOTES_FOLDER"
 }
 
-# ─── (Steps 7-8 removed — schedule and workstreams are now set up
-# ─── conversationally by the AI during first run. See framework/Getting Started.md)
-
-# ─── (Step 9 removed — features are now configured conversationally
-# ─── by the AI during onboarding. See framework/Automations.md)
-
-# ─── Step 10: Family Extension ──────────────────────────────────────
-
-ENABLE_FAMILY=false
-FAMILY_NAME=""; FAMILY_CHANNEL_ID=""; FAMILY_CHANNEL_NAME=""
-FAMILY_NOTES_FOLDER=""
+# ─── Family Extension ──────────────────────────────────────────
 
 collect_family() {
-    print_step "Step 10: Family Extension (Optional)"
+    print_step "Family Extension (Optional)"
 
-    if ! confirm "Set up a second user (spouse/partner)?"; then return; fi
+    if [[ "$ENABLE_FAMILY" == true ]]; then
+        echo "  Current family setup: $FAMILY_NAME ($FAMILY_CHANNEL_ID)"
+        echo ""
+        if ! confirm_no "Change family configuration?"; then
+            print_success "Keeping existing family setup"
+            return
+        fi
+    fi
+
+    if ! confirm "Set up a second user (spouse/partner)?"; then
+        ENABLE_FAMILY=false
+        return
+    fi
 
     ENABLE_FAMILY=true
-    ask "Their name:" FAMILY_NAME
-    ask "Their Slack channel ID:" FAMILY_CHANNEL_ID
-    ask_default "Their channel name:" "#${FAMILY_NAME,,}-cowork" FAMILY_CHANNEL_NAME
-    ask_default "Their notes folder:" "$(dirname "$NOTES_FOLDER")/Personal Assistant - $FAMILY_NAME" FAMILY_NOTES_FOLDER
+    local default_fname="${FAMILY_NAME:-}"
+    if [[ -n "$default_fname" ]]; then
+        ask_default "Their name:" "$default_fname" FAMILY_NAME
+    else
+        ask "Their name:" FAMILY_NAME
+    fi
+    ask_default "Their Slack channel ID:" "${FAMILY_CHANNEL_ID:-}" FAMILY_CHANNEL_ID
+    ask_default "Their channel name:" "${FAMILY_CHANNEL_NAME:-#${FAMILY_NAME,,}-cowork}" FAMILY_CHANNEL_NAME
+    ask_default "Their notes folder:" "${FAMILY_NOTES_FOLDER:-$(dirname "$NOTES_FOLDER")/Personal Assistant - $FAMILY_NAME}" FAMILY_NOTES_FOLDER
 
     print_success "Family: $FAMILY_NAME at $FAMILY_CHANNEL_NAME"
 }
 
-# ─── File Generation ────────────────────────────────────────────────
+# ─── File Generation ───────────────────────────────────────────
 
 apply_substitutions() {
     local file="$1"
@@ -466,9 +590,6 @@ apply_substitutions() {
     fi
 }
 
-# (replace_block and apply_conditionals removed — no longer needed
-# since framework files have no template placeholders)
-
 generate_files() {
     print_step "Generating Files"
 
@@ -476,7 +597,7 @@ generate_files() {
 
     local framework_src="$SCRIPT_DIR/framework"
 
-    # Copy all framework files to the user's notes folder
+    # Copy framework files (skip existing to preserve user data)
     for f in "$framework_src"/*.md; do
         local basename
         basename=$(basename "$f")
@@ -494,29 +615,25 @@ generate_files() {
         print_success "reminders.json"
     fi
 
-    # Copy the system prompt (for daemon/cowork mode)
+    # System prompt (always regenerated with current settings)
     local prompt_tpl="$SCRIPT_DIR/templates/prompts/$LANG_CODE"
     if [[ -d "$prompt_tpl" ]]; then
         mkdir -p "$NOTES_FOLDER/skills/mission-control"
         cp "$prompt_tpl/system-prompt.md.tpl" "$NOTES_FOLDER/skills/mission-control/SKILL.md"
         apply_substitutions "$NOTES_FOLDER/skills/mission-control/SKILL.md"
-        print_success "skills/mission-control/SKILL.md"
+        print_success "skills/mission-control/SKILL.md (updated)"
     fi
 
     echo ""
-    print_success "Framework files copied to: $NOTES_FOLDER"
-    echo ""
-    echo "  Your schedule and workstreams will be set up conversationally"
-    echo "  when the AI connects for the first time."
-    echo "  Or: open 'Getting Started.md' in any AI to do it now."
+    print_success "Framework files in: $NOTES_FOLDER"
 }
 
-# ─── Install Dependencies (Daemon Mode) ─────────────────────────────
+# ─── Install Dependencies ──────────────────────────────────────
 
 install_deps() {
     if [[ "$SETUP_MODE" != "daemon" ]]; then return; fi
 
-    print_step "Step 12: Installing Dependencies"
+    print_step "Installing Dependencies"
 
     if python3 -m pip install -r "$SCRIPT_DIR/daemon/requirements.txt" --quiet 2>/dev/null; then
         print_success "Python dependencies installed"
@@ -525,18 +642,18 @@ install_deps() {
         echo "    pip install -r $SCRIPT_DIR/daemon/requirements.txt"
     fi
 
-    # Create .env
+    # Create/update .env
     local env_file="$NOTES_FOLDER/.env"
     echo "SLACK_BOT_TOKEN=$SLACK_BOT_TOKEN" > "$env_file"
-    print_success ".env created (bot token stored)"
+    print_success ".env updated (bot token stored)"
 }
 
-# ─── Create Scheduled Tasks (Cowork Mode) ───────────────────────────
+# ─── Create Scheduled Tasks (Cowork Mode) ──────────────────────
 
 create_cowork_tasks() {
     if [[ "$SETUP_MODE" != "cowork" ]]; then return; fi
 
-    print_step "Step 12: Creating Scheduled Tasks"
+    print_step "Creating Scheduled Tasks"
 
     local tasks_dir="$HOME/.claude/scheduled-tasks"
     local tpl_dir="$SCRIPT_DIR/cowork/scheduled"
@@ -546,16 +663,6 @@ create_cowork_tasks() {
         task_name=$(basename "$tpl" .tpl)
         local task_dir="$tasks_dir/$task_name"
 
-        # Skip disabled features
-        case "$task_name" in
-            mc-morning-dispatch)  if [[ "$ENABLE_DISPATCH" != true ]]; then continue; fi ;;
-            mc-midday-checkin)    if [[ "$ENABLE_MIDDAY" != true ]]; then continue; fi ;;
-            mc-afternoon-checkin) if [[ "$ENABLE_AFTERNOON" != true ]]; then continue; fi ;;
-            mc-eod-summary)       if [[ "$ENABLE_EOD" != true ]]; then continue; fi ;;
-            mc-friday-summary)    if [[ "$ENABLE_WEEKLY_REVIEW" != true ]]; then continue; fi ;;
-            mc-sunday-planning)   if [[ "$ENABLE_WEEKLY_PLAN" != true ]]; then continue; fi ;;
-        esac
-
         mkdir -p "$task_dir"
         cp "$tpl" "$task_dir/SKILL.md"
         apply_substitutions "$task_dir/SKILL.md"
@@ -563,7 +670,7 @@ create_cowork_tasks() {
     done
 }
 
-# ─── Save Config ────────────────────────────────────────────────────
+# ─── Save Config ───────────────────────────────────────────────
 
 save_config() {
     cat > "$NOTES_FOLDER/.mc-config.json" <<CONF
@@ -579,24 +686,24 @@ save_config() {
   "llm_provider": "$LLM_PROVIDER",
   "channel_provider": "${CHANNEL_PROVIDER:-slack}",
   "family": $ENABLE_FAMILY,
-  "onboarding_complete": false,
+  "family_name": "$FAMILY_NAME",
+  "family_channel_id": "$FAMILY_CHANNEL_ID",
+  "family_notes_folder": "$FAMILY_NOTES_FOLDER",
   "setup_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 CONF
     print_success "Config saved: .mc-config.json"
 }
 
-# ─── Start Daemon ───────────────────────────────────────────────────
+# ─── Start Daemon ──────────────────────────────────────────────
 
 setup_daemon_service() {
     if [[ "$SETUP_MODE" != "daemon" ]]; then return; fi
 
-    print_step "Step 13: Start Daemon"
+    print_step "Start Daemon"
 
-    echo "  How would you like to run the daemon?"
-    echo ""
-    echo "    1. Background service (auto-starts on boot, recommended)"
-    echo "    2. Manual (run it yourself when needed)"
+    echo "    1. Background service (auto-starts on boot)"
+    echo "    2. Manual (run ./run.sh yourself)"
     echo ""
 
     ask_default "Choice:" "1" daemon_choice
@@ -611,8 +718,7 @@ setup_daemon_service() {
         echo ""
         echo "  To start manually:"
         echo "    cd $SCRIPT_DIR"
-        echo "    MC_CONFIG=\"$NOTES_FOLDER/.mc-config.json\" python3 -m daemon.main"
-        echo ""
+        echo "    ./run.sh"
     fi
 }
 
@@ -656,13 +762,12 @@ setup_launchd() {
 </plist>
 PLIST
 
+    launchctl unload "$plist_file" 2>/dev/null || true
     launchctl load "$plist_file" 2>/dev/null || true
-    launchctl start com.mission-control.daemon 2>/dev/null || true
 
     print_success "launchd service created and started"
     echo "    Logs: $HOME/.mission-control.log"
     echo "    Stop: launchctl stop com.mission-control.daemon"
-    echo "    Uninstall: launchctl unload $plist_file && rm $plist_file"
 }
 
 setup_systemd() {
@@ -691,15 +796,14 @@ SERVICE
 
     systemctl --user daemon-reload 2>/dev/null || true
     systemctl --user enable mission-control 2>/dev/null || true
-    systemctl --user start mission-control 2>/dev/null || true
+    systemctl --user restart mission-control 2>/dev/null || true
 
     print_success "systemd service created and started"
     echo "    Status: systemctl --user status mission-control"
     echo "    Logs: journalctl --user -u mission-control -f"
-    echo "    Stop: systemctl --user stop mission-control"
 }
 
-# ─── Print Summary ──────────────────────────────────────────────────
+# ─── Summary ───────────────────────────────────────────────────
 
 print_summary() {
     echo ""
@@ -707,28 +811,26 @@ print_summary() {
     echo -e "  ${BOLD}║         Setup Complete!                    ║${NC}"
     echo -e "  ${BOLD}╚═══════════════════════════════════════════╝${NC}"
     echo ""
-    echo "  Mode:          $SETUP_MODE"
-    echo "  Notes folder:  $NOTES_FOLDER"
-    echo "  LLM provider:  $LLM_PROVIDER"
-    echo "  Channel:       $SLACK_CHANNEL_NAME"
+    echo "  Mode:    $SETUP_MODE"
+    echo "  Folder:  $NOTES_FOLDER"
+    echo "  Channel: $SLACK_CHANNEL_NAME"
     echo ""
-
     echo "  Next steps:"
     echo "    1. The AI will reach out in Slack to learn about your"
     echo "       schedule and projects (the onboarding conversation)"
     echo "    2. Or: open 'Getting Started.md' in any AI to do it now"
     echo "    3. Open your notes folder in Obsidian for mobile access"
-
     echo ""
     echo -e "  ${GREEN}Enjoy your AI-powered life management system!${NC}"
     echo ""
 }
 
-# ─── Main ───────────────────────────────────────────────────────────
+# ─── Main ──────────────────────────────────────────────────────
 
 main() {
     parse_args "$@"
     show_banner
+    detect_existing
     check_system
     collect_mode
     collect_language
