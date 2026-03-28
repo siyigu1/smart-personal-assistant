@@ -232,7 +232,7 @@ def main():
 
     # Polling intervals
     REMINDER_INTERVAL = 60       # Check reminders every 60s
-    POLL_INTERVAL = 300          # Check messages every 5 min
+    POLL_INTERVAL = 60           # Check messages every 60s
 
     last_reminder_check = 0
     last_message_check = 0
