@@ -714,11 +714,61 @@ setup_daemon_service() {
         else
             setup_systemd
         fi
+
+        # Verify the daemon is running
+        echo ""
+        echo "  Verifying daemon is running..."
+        sleep 2
+
+        if [[ "$(uname)" == "Darwin" ]]; then
+            if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
+                print_success "Daemon is running"
+            else
+                print_warning "Daemon may not have started. Check logs:"
+                echo "    cat $HOME/.mission-control.log"
+                echo "    cat $HOME/.mission-control.err"
+            fi
+        else
+            if systemctl --user is-active mission-control &>/dev/null; then
+                print_success "Daemon is running"
+            else
+                print_warning "Daemon may not have started. Check:"
+                echo "    systemctl --user status mission-control"
+            fi
+        fi
+
+        # Test Slack connection
+        echo ""
+        if confirm "Send a test message to $SLACK_CHANNEL_NAME to verify Slack is working?"; then
+            echo "  Sending test message..."
+            local test_result
+            test_result=$(python3 -c "
+from slack_sdk import WebClient
+client = WebClient(token='$SLACK_BOT_TOKEN')
+try:
+    client.chat_postMessage(channel='$SLACK_CHANNEL_ID', text='Personal Assistant is set up and running! The onboarding conversation will start shortly.')
+    print('ok')
+except Exception as e:
+    print(f'error: {e}')
+" 2>&1)
+            if [[ "$test_result" == "ok" ]]; then
+                print_success "Test message sent! Check $SLACK_CHANNEL_NAME"
+            else
+                print_error "Could not send message: $test_result"
+                echo "    Check that:"
+                echo "      - Bot token is correct"
+                echo "      - Bot is invited to the channel"
+                echo "      - Channel ID is correct"
+            fi
+        fi
     else
         echo ""
         echo "  To start manually:"
         echo "    cd $SCRIPT_DIR"
         echo "    ./run.sh"
+        echo ""
+        echo "  To verify it's working:"
+        echo "    ./run.sh --once    (runs one cycle and exits)"
     fi
 }
 
@@ -815,11 +865,25 @@ print_summary() {
     echo "  Folder:  $NOTES_FOLDER"
     echo "  Channel: $SLACK_CHANNEL_NAME"
     echo ""
-    echo "  Next steps:"
-    echo "    1. The AI will reach out in Slack to learn about your"
-    echo "       schedule and projects (the onboarding conversation)"
-    echo "    2. Or: open 'Getting Started.md' in any AI to do it now"
-    echo "    3. Open your notes folder in Obsidian for mobile access"
+    if [[ "$SETUP_MODE" == "daemon" ]]; then
+        echo "  What happens next:"
+        echo "    1. The daemon checks Slack every 5 minutes"
+        echo "    2. On first run, the AI will message you in $SLACK_CHANNEL_NAME"
+        echo "       to learn about your schedule and projects (~15 min chat)"
+        echo "    3. After onboarding, it runs on autopilot — dispatches,"
+        echo "       check-ins, reminders, all automatic"
+        echo ""
+        echo "  Useful commands:"
+        echo "    View logs:  tail -f ~/.mission-control.log"
+        echo "    Test run:   cd $SCRIPT_DIR && ./run.sh --once"
+        echo "    Stop:       launchctl stop com.mission-control.daemon  (macOS)"
+        echo "    Re-setup:   ./setup.sh  (preserves your data)"
+    else
+        echo "  What happens next:"
+        echo "    1. Open Claude Desktop → Schedule tab → configure timing"
+        echo "    2. The AI will onboard you on first run"
+        echo "    3. Open your notes folder in Obsidian for mobile access"
+    fi
     echo ""
     echo -e "  ${GREEN}Enjoy your AI-powered life management system!${NC}"
     echo ""
