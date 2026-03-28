@@ -5,6 +5,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VERSION="2.0.0"
 SETUP_MODE="daemon"
 
+# ─── Logging ────────────────────────────────────────────────────
+# All output goes to both terminal and log file
+
+LOG_DIR="$SCRIPT_DIR/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/setup-$(date +%Y%m%d-%H%M%S).log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 # ─── Defaults (overridden by existing config if found) ──────────
 
 USER_NAME=""
@@ -894,6 +902,10 @@ print_summary() {
         echo "    2. The AI will onboard you on first run"
         echo "    3. Open your notes folder in Obsidian for mobile access"
     fi
+    echo ""
+    echo ""
+    echo -e "  ${DIM}Setup log saved to: $LOG_FILE${NC}"
+    echo -e "  ${DIM}If you run into issues, attach this log to your GitHub issue.${NC}"
     echo ""
     echo -e "  ${GREEN}Enjoy your AI-powered life management system!${NC}"
     echo ""

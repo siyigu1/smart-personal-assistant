@@ -45,6 +45,7 @@ env/
 node_modules/
 
 # Logs
+logs/
 *.log
 *.err
 .mission-control.log

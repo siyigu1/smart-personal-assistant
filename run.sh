@@ -12,6 +12,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 VENV_DIR="$SCRIPT_DIR/.venv"
+LOG_DIR="$SCRIPT_DIR/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/daemon-$(date +%Y%m%d-%H%M%S).log"
+
+# Log everything to file (daemon output goes to both terminal and log)
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo "[$(date)] Starting Personal Assistant daemon..."
+echo "[$(date)] Log file: $LOG_FILE"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Usage: ./run.sh [config_path] [--once]"
