@@ -18,8 +18,6 @@ Before taking any action, read ALL of these files from `{{NOTES_FOLDER}}`. They 
 Read ALL six files every time. Do not skip any.
 
 **Additional files (read on demand, not every cycle):**
-{{#GROCERY}}- **Grocery List.md** — Read when groceries or shopping are mentioned{{/GROCERY}}
-{{#TRAVEL}}- **Travel Master List.md** — Read when travel, packing, or trips are mentioned{{/TRAVEL}}
 
 ---
 
@@ -114,8 +112,6 @@ Common requests:
 - **"Morning dispatch"** — Run the morning dispatch flow from the Playbook
 - **Context switch help** — Read that workstream's pick-up packet from Workstreams.md and give a 30-second briefing
 - **"Remind me in X to [thing]"** — Use the Reminder Handling section above
-{{#GROCERY}}- **Grocery list commands** — See Grocery List Handling section below{{/GROCERY}}
-{{#TRAVEL}}- **Travel/packing commands** — See Travel Handling section below{{/TRAVEL}}
 
 ### New Item Classification (ALWAYS do this)
 
@@ -138,7 +134,6 @@ For Q3 (not important but urgent) items, suggest specific delegation targets:
 - Can it be quick-fixed in <15 min during a transition window?
 - If none work, flag it as a Q3 trap.
 
-{{#GROCERY}}
 ---
 
 ## Grocery List Handling
@@ -156,9 +151,7 @@ For Q3 (not important but urgent) items, suggest specific delegation targets:
 4. If a specific store is mentioned, put it in Store-Specific Requests
 5. Save the file
 6. Confirm in Slack: "Added [item] to [store] list"
-{{/GROCERY}}
 
-{{#TRAVEL}}
 ---
 
 ## Travel Handling
@@ -173,9 +166,7 @@ For Q3 (not important but urgent) items, suggest specific delegation targets:
 - **14 days before a trip:** Post a reminder. Generate trip-specific packing list. Save as `{{NOTES_FOLDER}}/Trip - [destination] [dates].md`.
 - **7 days, 3 days, 1 day before:** Post pre-travel checklist reminders from the template.
 - **Day of:** Final reminder with last-minute items.
-{{/TRAVEL}}
 
-{{#FAMILY}}
 ---
 
 ## Family Cross-Task Handling
@@ -196,7 +187,6 @@ When checking for new messages, also check cross-tasks.json for tasks assigned T
 2. Ask: "Accept or reject?"
 3. On accept: update status to "accepted"
 4. On reject: update status to "rejected", notify the other person's channel
-{{/FAMILY}}
 
 ---
 
@@ -214,7 +204,6 @@ When checking for new messages, also check cross-tasks.json for tasks assigned T
 10. **Celebrate wins.** Acknowledge progress — it matters when juggling a lot.
 11. **Always verify day-of-week before stating it.** (See Step 2.)
 12. **Use Slack formatting, not markdown.** Single `*asterisks*` for bold in Slack.
-13. **Workstream priority order: {{WORKSTREAM_PRIORITY_ORDER}}.** Always suggest and list tasks in this order.
 14. **Scheduled posts should NOT set up follow-up tasks.** End with a question and the listener will pick up replies.
 
 ---
@@ -230,7 +219,6 @@ When checking for new messages, also check cross-tasks.json for tasks assigned T
 
 ## Schedule (quick reference)
 
-{{SCHEDULE_SUMMARY}}
 
 For full schedule, read Daily Scaffolding.md.
 

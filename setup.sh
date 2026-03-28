@@ -460,46 +460,14 @@ apply_substitutions() {
     do_sed "s|{{SLACK_CHANNEL_NAME}}|${SLACK_CHANNEL_NAME}|g" "$file"
     do_sed "s|{{TIMEZONE}}|${TIMEZONE}|g" "$file"
     do_sed "s|{{NOTES_FOLDER}}|${NOTES_FOLDER}|g" "$file"
-    do_sed "s|{{WAKE_TIME}}|${WAKE_TIME}|g" "$file"
-    do_sed "s|{{SLEEP_TIME}}|${SLEEP_TIME}|g" "$file"
-    do_sed "s|{{WORK_START}}|${WORK_START}|g" "$file"
-    do_sed "s|{{WORK_END}}|${WORK_END}|g" "$file"
-    do_sed "s|{{DISPATCH_TIME}}|${DISPATCH_TIME}|g" "$file"
-    do_sed "s|{{MIDDAY_TIME}}|${MIDDAY_TIME}|g" "$file"
-    do_sed "s|{{AFTERNOON_TIME}}|${AFTERNOON_TIME}|g" "$file"
-    do_sed "s|{{EOD_TIME}}|${EOD_TIME}|g" "$file"
-    do_sed "s|{{WEEKLY_PLAN_TIME}}|${WEEKLY_PLAN_TIME}|g" "$file"
-    do_sed "s|{{WORKSTREAM_PRIORITY_ORDER}}|${WORKSTREAM_PRIORITY_ORDER}|g" "$file"
     if [[ "$ENABLE_FAMILY" == true ]]; then
         do_sed "s|{{FAMILY_NAME}}|${FAMILY_NAME}|g" "$file"
         do_sed "s|{{CROSS_TASKS_PATH}}|$(dirname "$NOTES_FOLDER")/cross-tasks.json|g" "$file"
     fi
 }
 
-replace_block() {
-    local file="$1" placeholder="$2" content="$3"
-    local tmpf
-    tmpf=$(mktemp)
-    printf '%s' "$content" > "$tmpf"
-    if grep -q "$placeholder" "$file" 2>/dev/null; then
-        do_sed "/$placeholder/r $tmpf" "$file"
-        do_sed "/$placeholder/d" "$file"
-    fi
-    rm -f "$tmpf"
-}
-
-apply_conditionals() {
-    local file="$1"
-    for feat_pair in "GROCERY:$ENABLE_GROCERY" "TRAVEL:$ENABLE_TRAVEL" "FAMILY:$ENABLE_FAMILY"; do
-        local feat="${feat_pair%%:*}"
-        local enabled="${feat_pair##*:}"
-        if [[ "$enabled" == true ]]; then
-            do_sed "/{{#${feat}}}/d; /{{\\/${feat}}}/d" "$file"
-        else
-            perl -i -0pe "s/\\{\\{#${feat}\\}\\}.*?\\{\\{\\/${feat}\\}\\}\\n?//gs" "$file"
-        fi
-    done
-}
+# (replace_block and apply_conditionals removed — no longer needed
+# since framework files have no template placeholders)
 
 generate_files() {
     print_step "Generating Files"
@@ -532,7 +500,6 @@ generate_files() {
         mkdir -p "$NOTES_FOLDER/skills/mission-control"
         cp "$prompt_tpl/system-prompt.md.tpl" "$NOTES_FOLDER/skills/mission-control/SKILL.md"
         apply_substitutions "$NOTES_FOLDER/skills/mission-control/SKILL.md"
-        apply_conditionals "$NOTES_FOLDER/skills/mission-control/SKILL.md"
         print_success "skills/mission-control/SKILL.md"
     fi
 
