@@ -1,8 +1,6 @@
 """Claude CLI LLM integration using `claude -p` (subscription-based)."""
 
 import subprocess
-import tempfile
-import os
 from enum import Enum
 
 from .base import LLMBridge
@@ -58,22 +56,19 @@ class ClaudeCLI(LLMBridge):
         self.on_error = on_error
 
     def invoke(self, prompt: str) -> str:
-        """Invoke claude -p with the given prompt."""
-        # Write prompt to temp file to avoid shell escaping issues
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", delete=False
-        ) as f:
-            f.write(prompt)
-            prompt_file = f.name
+        """Invoke claude -p with the given prompt.
 
+        Passes the prompt via stdin to avoid both shell escaping issues
+        and temp file permission problems (Claude CLI can't read /var/folders/).
+        """
         try:
             result = subprocess.run(
                 [
                     "claude",
                     "-p",
-                    f"Read and follow the instructions in {prompt_file}",
                     "--output-format", "text",
                 ],
+                input=prompt,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
@@ -115,8 +110,6 @@ class ClaudeCLI(LLMBridge):
         except FileNotFoundError:
             print("[claude] CLI not found. Install: https://docs.anthropic.com/en/docs/claude-code")
             return ""
-        finally:
-            os.unlink(prompt_file)
 
     def _classify_error(self, error_text: str) -> ClaudeError:
         """Classify an error based on stderr/stdout content."""
