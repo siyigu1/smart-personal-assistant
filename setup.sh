@@ -420,22 +420,29 @@ print(slug if slug else 'personal-assistant')
 }
 MANIFEST
 
-    # Step 1: Create App with manifest
+    # URL-encode the manifest
+    local encoded_manifest
+    encoded_manifest=$(python3 -c "import urllib.parse, json; print(urllib.parse.quote(json.dumps(json.load(open('$manifest_file')))))" 2>/dev/null || echo "")
+
+    # Step 1: Create App
     echo -e "  ${BOLD}Step 1/3: Create the Slack App${NC}"
-    echo "    1. Opening Slack app creation page..."
-    open_url "https://api.slack.com/apps?new_app=1"
-    echo "    2. Choose 'From an app manifest'"
-    echo "    3. Select your workspace → Next"
-    echo "    4. Switch to the 'JSON' tab"
-    echo "    5. Delete everything in the box and paste this manifest:"
-    echo ""
-    echo -e "  ${DIM}────────────────────────────────────────${NC}"
-    cat "$manifest_file"
-    echo -e "  ${DIM}────────────────────────────────────────${NC}"
-    echo ""
-    echo -e "  ${DIM}(Also saved to: $manifest_file — you can copy from there)${NC}"
-    echo ""
-    echo "    6. Click Next → Create"
+
+    if [[ -n "$encoded_manifest" ]]; then
+        echo "    1. Opening Slack with all permissions pre-filled..."
+        open_url "https://api.slack.com/apps?new_app=1&manifest_json=${encoded_manifest}"
+        echo "    2. Select your workspace → Next → Create"
+        echo ""
+        echo -e "    ${DIM}If Slack shows an error, choose 'From an app manifest' instead,${NC}"
+        echo -e "    ${DIM}switch to JSON tab, and paste the contents of:${NC}"
+        echo -e "    ${DIM}$manifest_file${NC}"
+    else
+        echo "    1. Opening Slack app creation page..."
+        open_url "https://api.slack.com/apps?new_app=1"
+        echo "    2. Choose 'From an app manifest' → select workspace → Next"
+        echo "    3. Switch to 'JSON' tab, paste contents of:"
+        echo -e "       ${DIM}$manifest_file${NC}"
+        echo "    4. Click Next → Create"
+    fi
     echo ""
     confirm "Done?" || true
 
