@@ -459,9 +459,9 @@ collect_identity() {
 
     local default_name="${USER_NAME:-}"
     if [[ -n "$default_name" ]]; then
-        ask_default "Your name:" "$default_name" USER_NAME
+        ask_default "How should I call you?" "$default_name" USER_NAME
     else
-        ask "Your name:" USER_NAME
+        ask "How should I call you?" USER_NAME
     fi
 
     # Assistant name
