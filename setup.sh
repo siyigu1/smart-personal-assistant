@@ -369,6 +369,18 @@ setup_slack_app() {
 
     local app_name="$ASSISTANT_NAME"
 
+    # Slack bot display_name must be ASCII-convertible (no Chinese, emoji, etc.)
+    # Use the app_name if it's ASCII, otherwise fall back to "assistant"
+    local bot_username
+    bot_username=$(python3 -c "
+name = '''${app_name}'''
+ascii_name = name.encode('ascii', 'ignore').decode().strip()
+# Remove non-alphanumeric except hyphens/underscores, lowercase
+import re
+slug = re.sub(r'[^a-zA-Z0-9_-]', '-', ascii_name).strip('-').lower()
+print(slug if slug else 'personal-assistant')
+" 2>/dev/null || echo "personal-assistant")
+
     # Generate manifest file
     local manifest_file="$SCRIPT_DIR/logs/slack-manifest.json"
     mkdir -p "$SCRIPT_DIR/logs"
@@ -381,7 +393,7 @@ setup_slack_app() {
   },
   "features": {
     "bot_user": {
-      "display_name": "${app_name}",
+      "display_name": "${bot_username}",
       "always_online": true
     }
   },
