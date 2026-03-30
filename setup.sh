@@ -16,6 +16,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 # ─── Defaults (overridden by existing config if found) ──────────
 
 USER_NAME=""
+ASSISTANT_NAME=""
 SLACK_BOT_TOKEN=""
 SLACK_CHANNEL_ID=""
 SLACK_CHANNEL_NAME=""
@@ -188,6 +189,7 @@ load_existing_config() {
     print_success "Loading previous setup..."
 
     USER_NAME=$(json_val "user_name" "$cfg")
+    ASSISTANT_NAME=$(json_val "assistant_name" "$cfg")
     SLACK_CHANNEL_ID=$(json_val "slack_channel_id" "$cfg")
     SLACK_CHANNEL_NAME=$(json_val "slack_channel_name" "$cfg")
     TIMEZONE=$(json_val "timezone" "$cfg")
@@ -214,8 +216,9 @@ load_existing_config() {
         FAMILY_CHANNEL_NAME="#${FAMILY_NAME,,}-cowork"
     fi
 
-    echo "    Name:    $USER_NAME"
-    echo "    Channel: $SLACK_CHANNEL_NAME ($SLACK_CHANNEL_ID)"
+    echo "    Name:      $USER_NAME"
+    echo "    Assistant: $ASSISTANT_NAME"
+    echo "    Channel:   $SLACK_CHANNEL_NAME ($SLACK_CHANNEL_ID)"
     echo "    Folder:  $NOTES_FOLDER"
     echo "    Lang:    $LANG_CODE"
     echo ""
@@ -364,10 +367,7 @@ setup_slack_app() {
     echo -e "  ${BOLD}━━━ Slack App Setup ━━━${NC}"
     echo ""
 
-    local app_name="Personal Assistant"
-    if [[ "$LANG_CODE" == "zh" ]]; then
-        app_name="智能管家"
-    fi
+    local app_name="$ASSISTANT_NAME"
 
     local manifest
     manifest=$(cat <<MANIFEST
@@ -463,6 +463,13 @@ collect_profile() {
     else
         ask "Your name:" USER_NAME
     fi
+
+    # Assistant name
+    local default_assistant="${ASSISTANT_NAME:-Personal Assistant}"
+    if [[ "$LANG_CODE" == "zh" ]]; then
+        default_assistant="${ASSISTANT_NAME:-智能管家}"
+    fi
+    ask_default "Name your assistant:" "$default_assistant" ASSISTANT_NAME
 
     # Timezone
     local detected_tz=""
@@ -588,6 +595,7 @@ collect_family() {
 apply_substitutions() {
     local file="$1"
     do_sed "s|{{USER_NAME}}|${USER_NAME}|g" "$file"
+    do_sed "s|{{ASSISTANT_NAME}}|${ASSISTANT_NAME}|g" "$file"
     do_sed "s|{{SLACK_CHANNEL_ID}}|${SLACK_CHANNEL_ID}|g" "$file"
     do_sed "s|{{SLACK_CHANNEL_NAME}}|${SLACK_CHANNEL_NAME}|g" "$file"
     do_sed "s|{{TIMEZONE}}|${TIMEZONE}|g" "$file"
@@ -696,6 +704,7 @@ save_config() {
   "version": "$VERSION",
   "setup_mode": "$SETUP_MODE",
   "user_name": "$USER_NAME",
+  "assistant_name": "$ASSISTANT_NAME",
   "slack_channel_id": "$SLACK_CHANNEL_ID",
   "slack_channel_name": "$SLACK_CHANNEL_NAME",
   "timezone": "$TIMEZONE",
@@ -717,6 +726,7 @@ CONF
 
 setup_daemon_service() {
     if [[ "$SETUP_MODE" != "daemon" ]]; then return; fi
+    if [[ "$SKIP_DAEMON_SETUP" == true ]]; then return; fi
 
     print_step "Start Daemon"
 
@@ -871,6 +881,40 @@ SERVICE
     echo "    Logs: journalctl --user -u mission-control -f"
 }
 
+# ─── Restart Running Daemon ──────────────────────────────────────
+
+restart_if_running() {
+    if [[ "$SETUP_MODE" != "daemon" ]]; then return; fi
+
+    local was_running=false
+
+    if [[ "$(uname)" == "Darwin" ]]; then
+        if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
+            was_running=true
+            print_step "Restarting Daemon"
+            echo "  Detected running daemon — restarting with new configuration..."
+            launchctl stop com.mission-control.daemon 2>/dev/null || true
+            sleep 1
+            launchctl start com.mission-control.daemon 2>/dev/null || true
+            print_success "Daemon restarted with new configuration"
+        fi
+    else
+        if systemctl --user is-active mission-control &>/dev/null; then
+            was_running=true
+            print_step "Restarting Daemon"
+            echo "  Detected running daemon — restarting with new configuration..."
+            systemctl --user restart mission-control 2>/dev/null || true
+            print_success "Daemon restarted with new configuration"
+        fi
+    fi
+
+    if [[ "$was_running" == true ]]; then
+        SKIP_DAEMON_SETUP=true
+    fi
+}
+
+SKIP_DAEMON_SETUP=false
+
 # ─── Summary ───────────────────────────────────────────────────
 
 print_summary() {
@@ -879,13 +923,14 @@ print_summary() {
     echo -e "  ${BOLD}║         Setup Complete!                    ║${NC}"
     echo -e "  ${BOLD}╚═══════════════════════════════════════════╝${NC}"
     echo ""
-    echo "  Mode:    $SETUP_MODE"
-    echo "  Folder:  $NOTES_FOLDER"
-    echo "  Channel: $SLACK_CHANNEL_NAME"
+    echo "  Mode:      $SETUP_MODE"
+    echo "  Assistant: $ASSISTANT_NAME"
+    echo "  Folder:    $NOTES_FOLDER"
+    echo "  Channel:   $SLACK_CHANNEL_NAME"
     echo ""
     if [[ "$SETUP_MODE" == "daemon" ]]; then
         echo "  What happens next:"
-        echo "    1. The daemon checks Slack every 5 minutes"
+        echo "    1. The daemon checks Slack every minute"
         echo "    2. On first run, the AI will message you in $SLACK_CHANNEL_NAME"
         echo "       to learn about your schedule and projects (~15 min chat)"
         echo "    3. After onboarding, it runs on autopilot — dispatches,"
@@ -928,6 +973,7 @@ main() {
     install_deps
     create_cowork_tasks
     save_config
+    restart_if_running
     setup_daemon_service
     print_summary
 }

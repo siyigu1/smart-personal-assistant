@@ -24,6 +24,7 @@ class Features:
 @dataclass
 class Config:
     user_name: str = "User"
+    assistant_name: str = "Personal Assistant"
     slack_bot_token: str = ""
     slack_channel_id: str = ""
     slack_channel_name: str = ""
@@ -150,6 +151,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
 
     config = Config(
         user_name=data.get("user_name", "User"),
+        assistant_name=data.get("assistant_name", "Personal Assistant"),
         slack_bot_token=os.environ.get("SLACK_BOT_TOKEN", ""),
         slack_channel_id=data.get("slack_channel_id", ""),
         slack_channel_name=data.get("slack_channel_name", ""),

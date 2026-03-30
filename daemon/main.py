@@ -203,7 +203,7 @@ def main():
         print("[daemon] New user detected — starting onboarding conversation")
         activity.log("onboarding", "New user detected, starting onboarding")
         channel.post(
-            f"Hi {config.user_name}! I'm your Personal Assistant. "
+            f"Hi {config.user_name}! I'm {config.assistant_name}. "
             f"Let's set up your system — I'll ask a few questions about "
             f"your schedule and projects. Takes about 15 minutes.\n\n"
             f"Ready to get started? (just reply 'yes' or 'let's go')"
