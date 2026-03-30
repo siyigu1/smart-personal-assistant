@@ -369,60 +369,39 @@ setup_slack_app() {
 
     local app_name="$ASSISTANT_NAME"
 
-    local manifest
-    manifest=$(cat <<MANIFEST
-{
-  "display_information": {
-    "name": "${app_name}",
-    "description": "AI-powered personal life management assistant",
-    "background_color": "#2c2d30"
-  },
-  "features": {
-    "bot_user": {
-      "display_name": "${app_name}",
-      "always_online": true
-    }
-  },
-  "oauth_config": {
-    "scopes": {
-      "bot": [
-        "channels:history",
-        "channels:read",
-        "chat:write",
-        "reactions:read",
-        "groups:history",
-        "groups:read",
-        "im:history",
-        "im:read",
-        "im:write"
-      ]
-    }
-  },
-  "settings": {
-    "org_deploy_enabled": false,
-    "socket_mode_enabled": false,
-    "token_rotation_enabled": false
-  }
-}
-MANIFEST
-)
-
-    local encoded_manifest
-    encoded_manifest=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read()))" <<< "$manifest")
-
-    echo -e "  ${BOLD}Step 1/3: Create the Slack App${NC}"
+    # Step 1: Create App
+    echo -e "  ${BOLD}Step 1/5: Create a Slack App${NC}"
     echo "    1. Opening Slack app creation page..."
-    open_url "https://api.slack.com/apps?new_app=1&manifest_json=${encoded_manifest}"
-    echo "    2. Select your workspace and click 'Create'"
-    echo -e "    3. Enter app name if not pre-filled: ${BOLD}${app_name}${NC}"
+    open_url "https://api.slack.com/apps?new_app=1"
+    echo "    2. Choose 'From scratch'"
+    echo -e "    3. App name: ${BOLD}${app_name}${NC}"
+    echo "    4. Select your workspace → Create App"
     echo ""
     confirm "Done?" || true
 
+    # Step 2: Add permissions
     echo ""
-    echo -e "  ${BOLD}Step 2/3: Install & Copy Token${NC}"
-    echo "    → Go to 'OAuth & Permissions' in the left sidebar"
+    echo -e "  ${BOLD}Step 2/5: Add Bot Permissions${NC}"
+    echo "    → In the left sidebar, click 'OAuth & Permissions'"
+    echo "    → Scroll to 'Bot Token Scopes' → 'Add an OAuth Scope'"
+    echo "    → Add these scopes:"
+    echo "        channels:history    channels:read"
+    echo "        chat:write          reactions:read"
+    echo ""
+    confirm "Done?" || true
+
+    # Step 3: Install
+    echo ""
+    echo -e "  ${BOLD}Step 3/5: Install to Workspace${NC}"
+    echo "    → Scroll to the top of 'OAuth & Permissions'"
     echo "    → Click 'Install to Workspace' → 'Allow'"
-    echo "    → Copy the 'Bot User OAuth Token' (starts with xoxb-)"
+    echo ""
+    confirm "Done?" || true
+
+    # Step 4: Copy token
+    echo ""
+    echo -e "  ${BOLD}Step 4/5: Copy Bot Token${NC}"
+    echo "    → You should see 'Bot User OAuth Token' (starts with xoxb-)"
     echo ""
     ask "Paste your Bot Token:" SLACK_BOT_TOKEN
 
@@ -430,10 +409,11 @@ MANIFEST
         print_warning "Token doesn't start with 'xoxb-' — make sure you copied the Bot token, not the User token"
     fi
 
+    # Step 5: Channel
     echo ""
-    echo -e "  ${BOLD}Step 3/3: Set Up Channel${NC}"
+    echo -e "  ${BOLD}Step 5/5: Set Up Channel${NC}"
     echo "    → Create a channel (e.g., #my-cowork) or use an existing one"
-    echo "    → Invite the bot: /invite @${app_name}"
+    echo -e "    → Invite the bot: /invite @${BOLD}${app_name}${NC}"
     echo "    → Get Channel ID: right-click channel → View details → bottom"
     echo ""
     ask "Channel ID (starts with C):" SLACK_CHANNEL_ID
