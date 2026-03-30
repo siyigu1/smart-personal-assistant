@@ -412,9 +412,9 @@ MANIFEST
 
     echo -e "  ${BOLD}Step 1/3: Create the Slack App${NC}"
     echo "    → Opening Slack app creation page..."
-    echo "    → App name: ${BOLD}${app_name}${NC}"
+    echo -e "    → App name: ${BOLD}${app_name}${NC}"
     echo "    → Select your workspace, then click 'Create'"
-    echo "    → (If the name isn't pre-filled, enter: ${BOLD}${app_name}${NC})"
+    echo -e "    → (If the name isn't pre-filled, enter: ${BOLD}${app_name}${NC})"
     open_url "https://api.slack.com/apps?new_app=1&manifest_json=${encoded_manifest}"
     echo ""
     confirm "Done?" || true
