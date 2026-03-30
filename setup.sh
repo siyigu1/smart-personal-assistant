@@ -454,8 +454,8 @@ setup_slack_cowork() {
 
 # ─── User Profile ──────────────────────────────────────────────
 
-collect_profile() {
-    print_step "User Profile"
+collect_identity() {
+    print_step "Who Are You?"
 
     local default_name="${USER_NAME:-}"
     if [[ -n "$default_name" ]]; then
@@ -470,6 +470,12 @@ collect_profile() {
         default_assistant="${ASSISTANT_NAME:-智能管家}"
     fi
     ask_default "Name your assistant:" "$default_assistant" ASSISTANT_NAME
+
+    print_success "$ASSISTANT_NAME for $USER_NAME"
+}
+
+collect_profile() {
+    print_step "Storage & Timezone"
 
     # Timezone
     local detected_tz=""
@@ -553,7 +559,7 @@ collect_profile() {
         fi
     fi
 
-    print_success "Profile: $USER_NAME | $TIMEZONE"
+    print_success "Timezone: $TIMEZONE"
     print_success "Notes folder: $NOTES_FOLDER"
 }
 
@@ -965,6 +971,7 @@ main() {
     check_system
     collect_mode
     collect_language
+    collect_identity
     collect_llm
     collect_channel
     collect_profile
