@@ -411,8 +411,10 @@ MANIFEST
     encoded_manifest=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read()))" <<< "$manifest")
 
     echo -e "  ${BOLD}Step 1/3: Create the Slack App${NC}"
-    echo "    → Opening Slack with all permissions pre-filled..."
-    echo "    → Just select your workspace and click 'Create'"
+    echo "    → Opening Slack app creation page..."
+    echo "    → App name: ${BOLD}${app_name}${NC}"
+    echo "    → Select your workspace, then click 'Create'"
+    echo "    → (If the name isn't pre-filled, enter: ${BOLD}${app_name}${NC})"
     open_url "https://api.slack.com/apps?new_app=1&manifest_json=${encoded_manifest}"
     echo ""
     confirm "Done?" || true
