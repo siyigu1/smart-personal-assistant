@@ -282,8 +282,8 @@ collect_mode() {
     if [[ "$SETUP_MODE" != "daemon" && "$SETUP_MODE" != "cowork" ]]; then
         print_step "$MSG_MODE_TITLE"
 
-        echo "    1. ${BOLD}Daemon mode${NC} (recommended) — ~15-20K tokens/day"
-        echo "    2. ${BOLD}Cowork mode${NC} — ~60-80K tokens/day"
+        echo "    1. $MSG_MODE_DAEMON"
+        echo "    2. $MSG_MODE_COWORK"
         echo ""
 
         ask_default "Choice:" "1" mode_choice
@@ -335,9 +335,9 @@ collect_llm() {
 
     print_step "$MSG_LLM_TITLE"
 
-    echo "    1. Claude (Anthropic) — uses Pro/Max subscription via CLI (recommended)"
-    echo "    2. Ollama — free, runs locally (coming soon)"
-    echo "    3. Custom — any OpenAI-compatible API (coming soon)"
+    echo "    1. $MSG_LLM_CLAUDE"
+    echo "    2. $MSG_LLM_OLLAMA"
+    echo "    3. $MSG_LLM_CUSTOM"
 
     ask_default "Choice:" "1" llm_choice
     LLM_PROVIDER="claude-cli"
@@ -367,9 +367,9 @@ collect_channel() {
         echo ""
     fi
 
-    echo "    1. Slack (recommended)"
-    echo "    2. Discord (coming soon)"
-    echo "    3. Telegram (coming soon)"
+    echo "    1. $MSG_CHANNEL_SLACK"
+    echo "    2. $MSG_CHANNEL_DISCORD"
+    echo "    3. $MSG_CHANNEL_TELEGRAM"
 
     ask_default "Choice:" "1" channel_choice
     CHANNEL_PROVIDER="slack"
@@ -447,30 +447,30 @@ MANIFEST
     echo -e "  ${BOLD}Step 1/3: Create the Slack App${NC}"
 
     if [[ -n "$encoded_manifest" ]]; then
-        echo "    1. Opening Slack with all permissions pre-filled..."
+        echo "    1. $MSG_SLACK_OPEN_AUTO"
         open_url "https://api.slack.com/apps?new_app=1&manifest_json=${encoded_manifest}"
-        echo "    2. Select your workspace → Next → Create"
+        echo "    2. $MSG_SLACK_SELECT_AUTO"
         echo ""
         echo -e "    ${DIM}If Slack shows an error, choose 'From an app manifest' instead,${NC}"
         echo -e "    ${DIM}switch to JSON tab, and paste the contents of:${NC}"
         echo -e "    ${DIM}$manifest_file${NC}"
     else
-        echo "    1. Opening Slack app creation page..."
+        echo "    1. $MSG_SLACK_OPEN_MANUAL"
         open_url "https://api.slack.com/apps?new_app=1"
         echo "    2. Choose 'From an app manifest' → select workspace → Next"
-        echo "    3. Switch to 'JSON' tab, paste contents of:"
+        echo "    3. $MSG_SLACK_MANUAL_JSON"
         echo -e "       ${DIM}$manifest_file${NC}"
-        echo "    4. Click Next → Create"
+        echo "    4. $MSG_SLACK_MANUAL_CREATE"
     fi
     echo ""
-    confirm "Done?" || true
+    confirm "$MSG_DONE" || true
 
     # Step 2: Install + Copy Token
     echo ""
     echo -e "  ${BOLD}Step 2/3: Install & Copy Token${NC}"
-    echo "    → Go to 'OAuth & Permissions' in the left sidebar"
-    echo "    → Click 'Install to Workspace' → 'Allow'"
-    echo "    → Copy the 'Bot User OAuth Token' (starts with xoxb-)"
+    echo "    → $MSG_SLACK_INSTALL"
+    echo "    → $MSG_SLACK_INSTALL2"
+    echo "    → $MSG_SLACK_INSTALL3"
     echo ""
     ask "$MSG_SLACK_PASTE" SLACK_BOT_TOKEN
 
@@ -481,24 +481,65 @@ MANIFEST
     # Step 3: Channel
     echo ""
     echo -e "  ${BOLD}Step 3/3: Set Up Channel${NC}"
-    echo "    → Create a channel (e.g., #my-cowork) or use an existing one"
+    echo "    → $MSG_SLACK_CHANNEL_CREATE"
     echo -e "    → Invite the bot: /invite @${app_name}"
-    echo "    → Get Channel ID: right-click channel → View details → bottom"
+    echo "    → $MSG_SLACK_CHANNEL_ID_HINT"
     echo ""
     ask "$MSG_SLACK_CHANNEL_ID" SLACK_CHANNEL_ID
     ask_default "$MSG_SLACK_CHANNEL_NAME" "#my-cowork" SLACK_CHANNEL_NAME
 
     echo ""
     print_success "$MSG_SLACK_DONE"
+
+    # Test connection
+    test_slack_connection
+}
+
+test_slack_connection() {
+    echo ""
+    if confirm "$MSG_SLACK_TEST"; then
+        while true; do
+            echo "  $MSG_SLACK_TEST_SENDING"
+            local test_result
+            test_result=$("$SCRIPT_DIR/.venv/bin/python3" -c "
+from slack_sdk import WebClient
+client = WebClient(token='$SLACK_BOT_TOKEN')
+try:
+    client.chat_postMessage(channel='$SLACK_CHANNEL_ID', text='$MSG_SLACK_TEST_MSG')
+    print('ok')
+except Exception as e:
+    print(f'error: {e}')
+" 2>&1 || echo "error: python/venv not ready")
+
+            if [[ "$test_result" == "ok" ]]; then
+                print_success "$MSG_SLACK_TEST_OK"
+                break
+            else
+                print_error "$MSG_SLACK_TEST_FAIL"
+                echo "    $test_result"
+                echo ""
+                echo -e "  ${BOLD}$MSG_SLACK_TEST_DEBUG${NC}"
+                echo "    $MSG_SLACK_TEST_DEBUG1"
+                echo "    $MSG_SLACK_TEST_DEBUG2"
+                echo "    $MSG_SLACK_TEST_DEBUG3"
+                echo "    $MSG_SLACK_TEST_DEBUG4"
+                echo "    $MSG_SLACK_TEST_DEBUG5"
+                echo ""
+                if ! confirm "$MSG_SLACK_TEST_RETRY"; then
+                    break
+                fi
+            fi
+        done
+    fi
 }
 
 setup_slack_cowork() {
     echo ""
-    echo "  For Cowork mode, Claude uses Slack MCP (built-in)."
-    echo "  You just need your channel info."
+    echo "  $MSG_SLACK_COWORK"
+    echo "  $MSG_SLACK_COWORK2"
     echo ""
-    ask "Slack Channel ID (starts with C):" SLACK_CHANNEL_ID
-    ask_default "Slack channel name:" "#my-cowork" SLACK_CHANNEL_NAME
+    ask "$MSG_SLACK_CHANNEL_ID" SLACK_CHANNEL_ID
+    ask_default "$MSG_SLACK_CHANNEL_NAME" "#my-cowork" SLACK_CHANNEL_NAME
     CHANNEL_PROVIDER="slack"
 }
 
@@ -545,8 +586,8 @@ collect_profile() {
     else
         # Detect cloud storage options
         echo ""
-        echo "  Where should your files be stored?"
-        echo "  Using a cloud folder enables mobile access (Obsidian) and family sharing."
+        echo "  $MSG_PROFILE_FOLDER"
+        echo "  $MSG_PROFILE_FOLDER_HINT"
         echo ""
 
         local folder_options=()
@@ -562,37 +603,37 @@ collect_profile() {
 
         if [[ -d "$icloud_obsidian" ]]; then
             folder_options+=("$icloud_obsidian/Personal Assistant")
-            folder_labels+=("iCloud (Obsidian vault) — best for mobile + family sharing")
+            folder_labels+=("")
             default_choice=$option_num
             option_num=$((option_num + 1))
         fi
         if [[ -d "$icloud_docs" ]]; then
             folder_options+=("$icloud_docs/Personal Assistant")
-            folder_labels+=("iCloud Documents — syncs across Apple devices")
+            folder_labels+=("")
             option_num=$((option_num + 1))
         fi
         if [[ -d "$dropbox" ]]; then
             folder_options+=("$dropbox/Personal Assistant")
-            folder_labels+=("Dropbox — cross-platform sync")
+            folder_labels+=("")
             option_num=$((option_num + 1))
         fi
         if [[ -d "$gdrive" ]]; then
             folder_options+=("$gdrive/Personal Assistant")
-            folder_labels+=("Google Drive — cross-platform sync")
+            folder_labels+=("")
             option_num=$((option_num + 1))
         fi
         if [[ -d "$onedrive" ]]; then
             folder_options+=("$onedrive/Personal Assistant")
-            folder_labels+=("OneDrive — cross-platform sync")
+            folder_labels+=("")
             option_num=$((option_num + 1))
         fi
 
         folder_options+=("$HOME/Documents/Personal Assistant")
-        folder_labels+=("Local only — ~/Documents/Personal Assistant")
+        folder_labels+=("")
         option_num=$((option_num + 1))
 
         folder_options+=("custom")
-        folder_labels+=("Custom path")
+        folder_labels+=("")
 
         for i in "${!folder_labels[@]}"; do
             echo "    $((i+1)). ${folder_labels[$i]}"
@@ -603,7 +644,7 @@ collect_profile() {
 
         local idx=$((folder_choice - 1))
         if [[ "${folder_options[$idx]}" == "custom" ]]; then
-            ask "Enter full path:" NOTES_FOLDER
+            ask "$MSG_PROFILE_ENTER_PATH" NOTES_FOLDER
         else
             NOTES_FOLDER="${folder_options[$idx]}"
         fi
@@ -635,11 +676,11 @@ collect_family() {
     ENABLE_FAMILY=true
     local default_fname="${FAMILY_NAME:-}"
     if [[ -n "$default_fname" ]]; then
-        ask_default "Their name:" "$default_fname" FAMILY_NAME
+        ask_default "$MSG_FAMILY_NAME" "$default_fname" FAMILY_NAME
     else
-        ask "Their name:" FAMILY_NAME
+        ask "$MSG_FAMILY_NAME" FAMILY_NAME
     fi
-    ask_default "Their Slack channel ID:" "${FAMILY_CHANNEL_ID:-}" FAMILY_CHANNEL_ID
+    ask_default "$MSG_FAMILY_CHANNEL" "${FAMILY_CHANNEL_ID:-}" FAMILY_CHANNEL_ID
     ask_default "Their channel name:" "${FAMILY_CHANNEL_NAME:-#${FAMILY_NAME,,}-cowork}" FAMILY_CHANNEL_NAME
     ask_default "Their notes folder:" "${FAMILY_NOTES_FOLDER:-$(dirname "$NOTES_FOLDER")/Personal Assistant - $FAMILY_NAME}" FAMILY_NOTES_FOLDER
 
@@ -711,14 +752,14 @@ install_deps() {
 
     # Create venv if it doesn't exist
     if [[ ! -d "$venv_dir" ]]; then
-        echo "  Creating virtual environment..."
+        echo "  $MSG_RUN_CREATING_VENV"
         python3 -m venv "$venv_dir"
     fi
     print_success "Virtual environment: .venv/"
 
     # Install deps in venv
     if "$venv_dir/bin/pip" install -r "$SCRIPT_DIR/daemon/requirements.txt" --quiet 2>/dev/null; then
-        print_success "Python dependencies installed"
+        print_success "$MSG_DEPS_INSTALLED"
     else
         print_warning "Could not install automatically. Run manually:"
         echo "    $venv_dir/bin/pip install -r $SCRIPT_DIR/daemon/requirements.txt"
@@ -787,7 +828,7 @@ setup_daemon_service() {
     print_step "$MSG_DAEMON_TITLE"
 
     echo "    1. Background service (auto-starts on boot)"
-    echo "    2. Manual (run ./run.sh yourself)"
+    echo "    2. $MSG_DAEMON_MANUAL"
     echo ""
 
     ask_default "Choice:" "1" daemon_choice
@@ -801,7 +842,7 @@ setup_daemon_service() {
 
         # Verify the daemon is running
         echo ""
-        echo "  Verifying daemon is running..."
+        echo "  $MSG_DAEMON_VERIFY"
         sleep 2
 
         if [[ "$(uname)" == "Darwin" ]]; then
@@ -821,37 +862,13 @@ setup_daemon_service() {
             fi
         fi
 
-        # Test Slack connection
-        echo ""
-        if confirm "Send a test message to $SLACK_CHANNEL_NAME to verify Slack is working?"; then
-            echo "  Sending test message..."
-            local test_result
-            test_result=$("$SCRIPT_DIR/.venv/bin/python3" -c "
-from slack_sdk import WebClient
-client = WebClient(token='$SLACK_BOT_TOKEN')
-try:
-    client.chat_postMessage(channel='$SLACK_CHANNEL_ID', text='Personal Assistant is set up and running! The onboarding conversation will start shortly.')
-    print('ok')
-except Exception as e:
-    print(f'error: {e}')
-" 2>&1)
-            if [[ "$test_result" == "ok" ]]; then
-                print_success "Test message sent! Check $SLACK_CHANNEL_NAME"
-            else
-                print_error "Could not send message: $test_result"
-                echo "    Check that:"
-                echo "      - Bot token is correct"
-                echo "      - Bot is invited to the channel"
-                echo "      - Channel ID is correct"
-            fi
-        fi
     else
         echo ""
-        echo "  To start manually:"
+        echo "  $MSG_DAEMON_MANUAL_START"
         echo "    cd $SCRIPT_DIR"
         echo "    ./run.sh"
         echo ""
-        echo "  To verify it's working:"
+        echo "  $MSG_DAEMON_MANUAL_VERIFY"
         echo "    ./run.sh --once    (runs one cycle and exits)"
     fi
 }
