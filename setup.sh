@@ -6,12 +6,27 @@ VERSION="2.0.0"
 SETUP_MODE="daemon"
 
 # ─── Logging ────────────────────────────────────────────────────
-# All output goes to both terminal and log file
 
 LOG_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/setup-$(date +%Y%m%d-%H%M%S).log"
 exec > >(tee -a "$LOG_FILE") 2>&1
+
+# ─── Language (loaded early, before any user-facing text) ───────
+
+LANG_CODE="en"
+
+load_language() {
+    local lang_file="$SCRIPT_DIR/i18n/${LANG_CODE}.sh"
+    if [[ -f "$lang_file" ]]; then
+        source "$lang_file"
+    else
+        source "$SCRIPT_DIR/i18n/en.sh"
+    fi
+}
+
+# Default to English until user picks
+load_language
 
 # ─── Defaults (overridden by existing config if found) ──────────
 
@@ -101,8 +116,9 @@ json_val() {
 show_banner() {
     echo ""
     echo -e "${BOLD}╔═══════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║   Smart Personal Assistant                        ║${NC}"
-    echo -e "${BOLD}║   v${VERSION}                                            ║${NC}"
+    echo -e "${BOLD}║   ${MSG_BANNER_TITLE}${NC}"
+    echo -e "${BOLD}║   v${VERSION}${NC}"
+    echo -e "${BOLD}║   ${MSG_BANNER_SUBTITLE}${NC}"
     echo -e "${BOLD}╚═══════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -161,7 +177,7 @@ detect_existing() {
         return
     fi
 
-    print_step "Existing Setup Found"
+    print_step "$MSG_EXISTING_FOUND"
 
     for i in "${!found[@]}"; do
         local cfg="${found[$i]}"
@@ -171,7 +187,7 @@ detect_existing() {
         folder=$(dirname "$cfg")
         echo "    $((i+1)). ${name:-Unknown} — $folder"
     done
-    echo "    $((${#found[@]}+1)). Start fresh"
+    echo "    $((${#found[@]}+1)). $MSG_EXISTING_START_FRESH"
     echo ""
 
     ask_default "Choice:" "1" existing_choice
@@ -186,7 +202,7 @@ detect_existing() {
 load_existing_config() {
     local cfg="$EXISTING_CONFIG"
     echo ""
-    print_success "Loading previous setup..."
+    print_success "$MSG_EXISTING_LOADING"
 
     USER_NAME=$(json_val "user_name" "$cfg")
     ASSISTANT_NAME=$(json_val "assistant_name" "$cfg")
@@ -227,22 +243,22 @@ load_existing_config() {
 # ─── Step 1: System Check ──────────────────────────────────────
 
 check_system() {
-    print_step "System Check"
+    print_step "$MSG_SYSTEM_CHECK"
 
     if command -v python3 &>/dev/null; then
         local pyver
         pyver=$(python3 --version 2>&1 | awk '{print $2}')
         print_success "Python $pyver"
     else
-        print_error "Python 3 not found"
+        print_error "$MSG_PYTHON_NOT_FOUND"
         echo "    Install Python 3.10+: https://www.python.org/downloads/"
         exit 1
     fi
 
     if python3 -m pip --version &>/dev/null 2>&1; then
-        print_success "pip available"
+        print_success "$MSG_PIP_AVAILABLE"
     else
-        print_warning "pip not found — you'll need it to install dependencies"
+        print_warning "$MSG_PIP_NOT_FOUND"
     fi
 
     if [[ "$SETUP_MODE" == "daemon" ]]; then
@@ -251,10 +267,9 @@ check_system() {
             clver=$(claude --version 2>/dev/null || echo "unknown")
             print_success "Claude CLI ($clver)"
         else
-            print_warning "Claude CLI not found"
-            echo "    Required for daemon mode. Install:"
+            print_warning "$MSG_CLAUDE_NOT_FOUND"
             open_url "https://docs.anthropic.com/en/docs/claude-code"
-            if ! confirm "Continue without Claude CLI?"; then
+            if ! confirm "$MSG_CONTINUE_WITHOUT"; then
                 exit 1
             fi
         fi
@@ -265,7 +280,7 @@ check_system() {
 
 collect_mode() {
     if [[ "$SETUP_MODE" != "daemon" && "$SETUP_MODE" != "cowork" ]]; then
-        print_step "Setup Mode"
+        print_step "$MSG_MODE_TITLE"
 
         echo "    1. ${BOLD}Daemon mode${NC} (recommended) — ~15-20K tokens/day"
         echo "    2. ${BOLD}Cowork mode${NC} — ~60-80K tokens/day"
@@ -285,23 +300,27 @@ collect_mode() {
 # ─── Language ───────────────────────────────────────────────────
 
 collect_language() {
-    print_step "Language / 语言"
+    echo ""
+    echo "  Language / 语言:"
+    echo ""
+    echo "    1. English"
+    echo "    2. 中文"
+    echo ""
 
     local default_lang="1"
     if [[ "$LANG_CODE" == "zh" ]]; then
         default_lang="2"
     fi
 
-    echo "    1. English"
-    echo "    2. 中文"
-
-    ask_default "Choice:" "$default_lang" lang_choice
+    ask_default "Choice / 选择:" "$default_lang" lang_choice
 
     if [[ "$lang_choice" == "2" ]]; then
         LANG_CODE="zh"
+        load_language
         print_success "语言：中文"
     else
         LANG_CODE="en"
+        load_language
         print_success "Language: English"
     fi
 }
@@ -314,7 +333,7 @@ collect_llm() {
         return
     fi
 
-    print_step "LLM Provider"
+    print_step "$MSG_LLM_TITLE"
 
     echo "    1. Claude (Anthropic) — uses Pro/Max subscription via CLI (recommended)"
     echo "    2. Ollama — free, runs locally (coming soon)"
@@ -331,7 +350,7 @@ collect_llm() {
 # ─── Chat Channel ──────────────────────────────────────────────
 
 collect_channel() {
-    print_step "Chat Channel"
+    print_step "$MSG_CHANNEL_TITLE"
 
     # If we have existing Slack config, offer to keep it
     if [[ -n "$SLACK_CHANNEL_ID" && -n "$SLACK_BOT_TOKEN" ]]; then
@@ -340,8 +359,8 @@ collect_channel() {
         echo "    Bot Token: ${SLACK_BOT_TOKEN:0:10}...${SLACK_BOT_TOKEN: -4}"
         echo ""
 
-        if ! confirm_no "Change Slack configuration?"; then
-            print_success "Keeping existing Slack configuration"
+        if ! confirm_no "$MSG_CHANNEL_CHANGE"; then
+            print_success "$MSG_CHANNEL_KEEPING"
             CHANNEL_PROVIDER="slack"
             return
         fi
@@ -453,7 +472,7 @@ MANIFEST
     echo "    → Click 'Install to Workspace' → 'Allow'"
     echo "    → Copy the 'Bot User OAuth Token' (starts with xoxb-)"
     echo ""
-    ask "Paste your Bot Token:" SLACK_BOT_TOKEN
+    ask "$MSG_SLACK_PASTE" SLACK_BOT_TOKEN
 
     if [[ ! "$SLACK_BOT_TOKEN" =~ ^xoxb- ]]; then
         print_warning "Token doesn't start with 'xoxb-' — make sure you copied the Bot token, not the User token"
@@ -466,11 +485,11 @@ MANIFEST
     echo -e "    → Invite the bot: /invite @${app_name}"
     echo "    → Get Channel ID: right-click channel → View details → bottom"
     echo ""
-    ask "Channel ID (starts with C):" SLACK_CHANNEL_ID
-    ask_default "Channel name:" "#my-cowork" SLACK_CHANNEL_NAME
+    ask "$MSG_SLACK_CHANNEL_ID" SLACK_CHANNEL_ID
+    ask_default "$MSG_SLACK_CHANNEL_NAME" "#my-cowork" SLACK_CHANNEL_NAME
 
     echo ""
-    print_success "Slack configured!"
+    print_success "$MSG_SLACK_DONE"
 }
 
 setup_slack_cowork() {
@@ -486,13 +505,13 @@ setup_slack_cowork() {
 # ─── User Profile ──────────────────────────────────────────────
 
 collect_identity() {
-    print_step "Who Are You?"
+    print_step "$MSG_IDENTITY_TITLE"
 
     local default_name="${USER_NAME:-}"
     if [[ -n "$default_name" ]]; then
-        ask_default "How should I call you?" "$default_name" USER_NAME
+        ask_default "$MSG_IDENTITY_NAME" "$default_name" USER_NAME
     else
-        ask "How should I call you?" USER_NAME
+        ask "$MSG_IDENTITY_NAME" USER_NAME
     fi
 
     # Assistant name
@@ -500,13 +519,13 @@ collect_identity() {
     if [[ "$LANG_CODE" == "zh" ]]; then
         default_assistant="${ASSISTANT_NAME:-智能管家}"
     fi
-    ask_default "Name your assistant:" "$default_assistant" ASSISTANT_NAME
+    ask_default "$MSG_IDENTITY_ASSISTANT" "$default_assistant" ASSISTANT_NAME
 
     print_success "$ASSISTANT_NAME for $USER_NAME"
 }
 
 collect_profile() {
-    print_step "Storage & Timezone"
+    print_step "$MSG_PROFILE_TITLE"
 
     # Timezone
     local detected_tz=""
@@ -517,7 +536,7 @@ collect_profile() {
     fi
     local default_tz="${TIMEZONE:-${detected_tz:-America/New_York}}"
 
-    ask_default "Timezone:" "$default_tz" TIMEZONE
+    ask_default "$MSG_PROFILE_TIMEZONE" "$default_tz" TIMEZONE
 
     # Notes folder
     if [[ -n "$NOTES_FOLDER" ]]; then
@@ -597,18 +616,18 @@ collect_profile() {
 # ─── Family Extension ──────────────────────────────────────────
 
 collect_family() {
-    print_step "Family Extension (Optional)"
+    print_step "$MSG_FAMILY_TITLE"
 
     if [[ "$ENABLE_FAMILY" == true ]]; then
         echo "  Current family setup: $FAMILY_NAME ($FAMILY_CHANNEL_ID)"
         echo ""
-        if ! confirm_no "Change family configuration?"; then
-            print_success "Keeping existing family setup"
+        if ! confirm_no "$MSG_FAMILY_CHANGE"; then
+            print_success "$MSG_FAMILY_KEEPING"
             return
         fi
     fi
 
-    if ! confirm "Set up a second user (spouse/partner)?"; then
+    if ! confirm "$MSG_FAMILY_CONFIRM"; then
         ENABLE_FAMILY=false
         return
     fi
@@ -644,7 +663,7 @@ apply_substitutions() {
 }
 
 generate_files() {
-    print_step "Generating Files"
+    print_step "$MSG_GENERATING"
 
     mkdir -p "$NOTES_FOLDER"
 
@@ -686,7 +705,7 @@ generate_files() {
 install_deps() {
     if [[ "$SETUP_MODE" != "daemon" ]]; then return; fi
 
-    print_step "Installing Dependencies"
+    print_step "$MSG_DEPS_TITLE"
 
     local venv_dir="$SCRIPT_DIR/.venv"
 
@@ -765,7 +784,7 @@ setup_daemon_service() {
     if [[ "$SETUP_MODE" != "daemon" ]]; then return; fi
     if [[ "$SKIP_DAEMON_SETUP" == true ]]; then return; fi
 
-    print_step "Start Daemon"
+    print_step "$MSG_DAEMON_TITLE"
 
     echo "    1. Background service (auto-starts on boot)"
     echo "    2. Manual (run ./run.sh yourself)"
@@ -787,7 +806,7 @@ setup_daemon_service() {
 
         if [[ "$(uname)" == "Darwin" ]]; then
             if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
-                print_success "Daemon is running"
+                print_success "$MSG_DAEMON_RUNNING"
             else
                 print_warning "Daemon may not have started. Check logs:"
                 echo "    cat $HOME/.mission-control.log"
@@ -795,7 +814,7 @@ setup_daemon_service() {
             fi
         else
             if systemctl --user is-active mission-control &>/dev/null; then
-                print_success "Daemon is running"
+                print_success "$MSG_DAEMON_RUNNING"
             else
                 print_warning "Daemon may not have started. Check:"
                 echo "    systemctl --user status mission-control"
@@ -928,20 +947,20 @@ restart_if_running() {
     if [[ "$(uname)" == "Darwin" ]]; then
         if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
             was_running=true
-            print_step "Restarting Daemon"
-            echo "  Detected running daemon — restarting with new configuration..."
+            print_step "$MSG_RESTART_TITLE"
+            echo "  $MSG_RESTART_DETECTED"
             launchctl stop com.mission-control.daemon 2>/dev/null || true
             sleep 1
             launchctl start com.mission-control.daemon 2>/dev/null || true
-            print_success "Daemon restarted with new configuration"
+            print_success "$MSG_RESTART_DONE"
         fi
     else
         if systemctl --user is-active mission-control &>/dev/null; then
             was_running=true
-            print_step "Restarting Daemon"
-            echo "  Detected running daemon — restarting with new configuration..."
+            print_step "$MSG_RESTART_TITLE"
+            echo "  $MSG_RESTART_DETECTED"
             systemctl --user restart mission-control 2>/dev/null || true
-            print_success "Daemon restarted with new configuration"
+            print_success "$MSG_RESTART_DONE"
         fi
     fi
 
@@ -957,39 +976,32 @@ SKIP_DAEMON_SETUP=false
 print_summary() {
     echo ""
     echo -e "  ${BOLD}╔═══════════════════════════════════════════╗${NC}"
-    echo -e "  ${BOLD}║         Setup Complete!                    ║${NC}"
+    echo -e "  ${BOLD}║   $MSG_SUMMARY_COMPLETE${NC}"
     echo -e "  ${BOLD}╚═══════════════════════════════════════════╝${NC}"
     echo ""
-    echo "  Mode:      $SETUP_MODE"
     echo "  Assistant: $ASSISTANT_NAME"
     echo "  Folder:    $NOTES_FOLDER"
     echo "  Channel:   $SLACK_CHANNEL_NAME"
     echo ""
     if [[ "$SETUP_MODE" == "daemon" ]]; then
-        echo "  What happens next:"
-        echo "    1. The daemon checks Slack every minute"
-        echo "    2. On first run, the AI will message you in $SLACK_CHANNEL_NAME"
-        echo "       to learn about your schedule and projects (~15 min chat)"
-        echo "    3. After onboarding, it runs on autopilot — dispatches,"
-        echo "       check-ins, reminders, all automatic"
+        echo "  $MSG_SUMMARY_NEXT"
+        echo "    1. $MSG_SUMMARY_NEXT1"
+        echo "    2. $MSG_SUMMARY_NEXT2 $SLACK_CHANNEL_NAME"
+        echo "       $MSG_SUMMARY_NEXT3"
+        echo "    3. $MSG_SUMMARY_NEXT4"
+        echo "       $MSG_SUMMARY_NEXT5"
         echo ""
-        echo "  Useful commands:"
+        echo "  $MSG_SUMMARY_COMMANDS"
         echo "    View logs:  tail -f ~/.mission-control.log"
         echo "    Test run:   cd $SCRIPT_DIR && ./run.sh --once"
-        echo "    Stop:       launchctl stop com.mission-control.daemon  (macOS)"
-        echo "    Re-setup:   ./setup.sh  (preserves your data)"
-    else
-        echo "  What happens next:"
-        echo "    1. Open Claude Desktop → Schedule tab → configure timing"
-        echo "    2. The AI will onboard you on first run"
-        echo "    3. Open your notes folder in Obsidian for mobile access"
+        echo "    Status:     cd $SCRIPT_DIR && ./status.sh"
+        echo "    Re-setup:   ./setup.sh"
     fi
     echo ""
+    echo -e "  ${DIM}$MSG_SUMMARY_LOG $LOG_FILE${NC}"
+    echo -e "  ${DIM}$MSG_SUMMARY_LOG_HINT${NC}"
     echo ""
-    echo -e "  ${DIM}Setup log saved to: $LOG_FILE${NC}"
-    echo -e "  ${DIM}If you run into issues, attach this log to your GitHub issue.${NC}"
-    echo ""
-    echo -e "  ${GREEN}Enjoy your AI-powered life management system!${NC}"
+    echo -e "  ${GREEN}$MSG_SUMMARY_ENJOY${NC}"
     echo ""
 }
 
@@ -997,11 +1009,11 @@ print_summary() {
 
 main() {
     parse_args "$@"
+    collect_language
     show_banner
     detect_existing
     check_system
     collect_mode
-    collect_language
     collect_identity
     collect_llm
     collect_channel

@@ -16,33 +16,41 @@ LOG_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/daemon-$(date +%Y%m%d-%H%M%S).log"
 
-# Log everything to file (daemon output goes to both terminal and log)
+# Detect language from config if available
+LANG_CODE="en"
+for candidate in \
+    "${MC_CONFIG:-}" \
+    "$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/Personal Assistant/.mc-config.json" \
+    "$HOME/Documents/Personal Assistant/.mc-config.json"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+        LANG_CODE=$(python3 -c "import json; print(json.load(open('$candidate')).get('language','en'))" 2>/dev/null || echo "en")
+        break
+    fi
+done
+
+source "$SCRIPT_DIR/i18n/${LANG_CODE}.sh" 2>/dev/null || source "$SCRIPT_DIR/i18n/en.sh"
+
+# Log everything to file
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-echo "[$(date)] Starting Personal Assistant daemon..."
-echo "[$(date)] Log file: $LOG_FILE"
+echo "[$(date)] $MSG_RUN_STARTING"
+echo "[$(date)] $MSG_RUN_LOG $LOG_FILE"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Usage: ./run.sh [config_path] [--once]"
     echo ""
-    echo "  config_path   Path to .mc-config.json (optional)"
-    echo "  --once        Run one cycle and exit (for testing)"
-    echo ""
-    echo "If no config path is given, searches:"
-    echo "  1. MC_CONFIG environment variable"
-    echo "  2. ~/Documents/Personal Assistant/.mc-config.json"
-    echo "  3. iCloud, Dropbox, Google Drive, OneDrive locations"
+    echo "  config_path   Path to .mc-config.json"
+    echo "  --once        Run one cycle and exit"
     exit 0
 fi
 
 # ─── Set up virtual environment if needed ───────────────────────
 
 if [[ ! -d "$VENV_DIR" ]]; then
-    echo "Creating virtual environment..."
+    echo "$MSG_RUN_CREATING_VENV"
     python3 -m venv "$VENV_DIR"
-    echo "Installing dependencies..."
+    echo "$MSG_RUN_INSTALLING"
     "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/daemon/requirements.txt" --quiet
-    echo "Done."
     echo ""
 fi
 
@@ -56,9 +64,8 @@ missing=()
 "$PYTHON" -c "import schedule" 2>/dev/null || missing+=("schedule")
 
 if [[ ${#missing[@]} -gt 0 ]]; then
-    echo "Installing missing dependencies: ${missing[*]}"
+    echo "$MSG_RUN_INSTALLING_MISSING ${missing[*]}"
     "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/daemon/requirements.txt" --quiet
-    echo "Done."
     echo ""
 fi
 
