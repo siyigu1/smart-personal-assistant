@@ -271,8 +271,7 @@ Rules:
 - "files": filename (no .md) → complete file content. ONLY include files that changed. Omit if none.
 - "short_term_memory": temp context to remember across messages (partial answers, clarifications, state). NOT saved to user files. Fed back to you next call. Use to avoid re-asking. Omit if empty.
 - "onboarding_complete": true ONLY when you've gathered everything and are writing files
-- File content = COMPLETE file, not a diff
-- Keep your JSON compact — no unnecessary whitespace in file content. The daemon handles formatting.
+- File content = COMPLETE file, not a diff. Write it exactly as it should appear on disk (proper markdown formatting, headings, blank lines, etc.)
 
 If no file updates are needed, omit the FILE_UPDATES section entirely.
 """
