@@ -79,26 +79,14 @@ class ClaudeCLI(LLMBridge):
                 error_type = self._classify_error(error_text)
 
                 if error_type == ClaudeError.AUTH_REQUIRED:
-                    msg = (
-                        "Claude CLI needs you to log in again. "
-                        "Go to your computer and run: claude login"
-                    )
                     print(f"[claude] Auth required — notifying user")
-                    self._notify_error(ClaudeError.AUTH_REQUIRED, msg)
+                    self._notify_error(ClaudeError.AUTH_REQUIRED, "auth_required")
                 elif error_type == ClaudeError.UPDATE_REQUIRED:
-                    msg = (
-                        "Claude CLI has an update available. "
-                        "Go to your computer and run: claude update"
-                    )
                     print(f"[claude] Update required — notifying user")
-                    self._notify_error(ClaudeError.UPDATE_REQUIRED, msg)
+                    self._notify_error(ClaudeError.UPDATE_REQUIRED, "update_required")
                 else:
                     print(f"[claude] CLI error (exit {result.returncode}): {result.stderr}")
-                    self._notify_error(
-                        ClaudeError.UNKNOWN,
-                        f"Claude CLI error (exit code {result.returncode}). "
-                        f"Check the daemon logs."
-                    )
+                    self._notify_error(ClaudeError.UNKNOWN, f"unknown:{result.returncode}")
 
                 return ""
 

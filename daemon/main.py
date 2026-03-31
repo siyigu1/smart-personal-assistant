@@ -69,7 +69,7 @@ def create_llm(config: Config, channel) -> LLMBridge:
     via Slack when errors occur (e.g., 401 auth required).
     """
     if config.llm_provider == "claude-cli":
-        return ClaudeCLI(timeout=180, on_error=_llm_error_notifier(channel))
+        return ClaudeCLI(timeout=180, on_error=_llm_error_notifier(channel, config))
     else:
         raise ValueError(f"Unknown LLM provider: {config.llm_provider}")
 
@@ -78,27 +78,58 @@ def create_llm(config: Config, channel) -> LLMBridge:
 _notified_errors: set = set()
 
 
-def _llm_error_notifier(channel):
+_ERROR_MESSAGES = {
+    "en": {
+        "auth_required": "Claude CLI needs you to log in again. Go to your computer and run: claude login",
+        "update_required": "Claude CLI has an update available. Go to your computer and run: claude update",
+        "prefix": "Action needed",
+    },
+    "zh": {
+        "auth_required": "Claude CLI 需要你重新登录。请到电脑上运行：claude login",
+        "update_required": "Claude CLI 有更新。请到电脑上运行：claude update",
+        "prefix": "需要你操作",
+    },
+}
+
+
+def _llm_error_notifier(channel, config):
     """Create an error callback that notifies Slack once per error type."""
-    def on_error(error_type, message):
+    def on_error(error_type, message_key):
         if error_type.value in _notified_errors:
             return
         _notified_errors.add(error_type.value)
-        channel.post(f"⚠️ *Action needed:* {message}")
+        lang = config.language if config.language in _ERROR_MESSAGES else "en"
+        msgs = _ERROR_MESSAGES[lang]
+        prefix = msgs["prefix"]
+        if message_key in msgs:
+            detail = msgs[message_key]
+        elif message_key.startswith("unknown:"):
+            code = message_key.split(":")[1]
+            detail = f"Claude CLI error (exit code {code})" if lang == "en" else f"Claude CLI 错误（退出码 {code}）"
+        else:
+            detail = message_key
+        channel.post(f"⚠️ *{prefix}:* {detail}")
     return on_error
 
 
-def notify_llm_failure(channel, operation: str, activity=None):
+def notify_llm_failure(channel, operation: str, config=None, activity=None):
     """Notify user via Slack that an LLM call failed. Only once."""
     key = f"llm_failure_{operation}"
     if key in _notified_errors:
         return
     _notified_errors.add(key)
-    channel.post(
-        f"⚠️ I tried to run *{operation}* but didn't get a response from the AI. "
-        f"This might be a temporary issue — I'll keep trying. "
-        f"If it persists, check `./status.sh errors` for details."
-    )
+    if config and config.language == "zh":
+        channel.post(
+            f"⚠️ 尝试运行 *{operation}* 但没有收到 AI 的回复。"
+            f"可能是临时问题——我会继续尝试。"
+            f"如果持续出现，请运行 `./status.sh errors` 查看详情。"
+        )
+    else:
+        channel.post(
+            f"⚠️ I tried to run *{operation}* but didn't get a response from the AI. "
+            f"This might be a temporary issue — I'll keep trying. "
+            f"If it persists, check `./status.sh errors` for details."
+        )
     if activity:
         activity.llm_error(operation, "Empty response from LLM")
 
@@ -141,7 +172,7 @@ def run_operation(
 
     if not raw_response:
         print(f"[daemon] Empty response from LLM for: {operation}")
-        notify_llm_failure(channel, operation, activity)
+        notify_llm_failure(channel, operation, config=config, activity=activity)
         return
 
     # Clear the failure flag for this operation on success
@@ -233,7 +264,7 @@ def main():
         cross_tasks_path = os.path.join(
             os.path.dirname(config.notes_folder), "cross-tasks.json"
         )
-        cross_tasks = CrossTaskChecker(cross_tasks_path, config.user_name)
+        cross_tasks = CrossTaskChecker(cross_tasks_path, config.user_name, config.language)
 
     # Graceful shutdown
     running = True
@@ -274,7 +305,10 @@ def main():
             activity.poll(new_msg is not None,
                          new_msg.text if new_msg else "")
             if new_msg:
-                channel.post("Got it — working on this now")
+                if config.language == "zh":
+                    channel.post("收到 — 正在处理")
+                else:
+                    channel.post("Got it — working on this now")
                 run_operation(
                     llm, channel, config,
                     "message_response",

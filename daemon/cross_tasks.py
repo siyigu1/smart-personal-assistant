@@ -13,9 +13,10 @@ from .channels.base import ChannelClient
 class CrossTaskChecker:
     """Check for cross-task assignments and notify. No LLM involvement."""
 
-    def __init__(self, cross_tasks_path: str, user_name: str):
+    def __init__(self, cross_tasks_path: str, user_name: str, language: str = "en"):
         self.path = cross_tasks_path
         self.user_name = user_name
+        self.language = language
 
     def check_and_notify(self, channel: ChannelClient) -> int:
         """Check for pending tasks assigned to this user.
@@ -39,10 +40,16 @@ class CrossTaskChecker:
                     and not task.get("notified", False)):
                 from_name = task.get("from", "Someone")
                 description = task.get("task", "a task")
-                channel.post(
-                    f"{from_name} assigned you: {description}\n"
-                    f"Reply 'accept' or 'reject'"
-                )
+                if self.language == "zh":
+                    channel.post(
+                        f"{from_name} 给你分配了任务：{description}\n"
+                        f"回复'接受'或'拒绝'"
+                    )
+                else:
+                    channel.post(
+                        f"{from_name} assigned you: {description}\n"
+                        f"Reply 'accept' or 'reject'"
+                    )
                 task["notified"] = True
                 notified += 1
 
