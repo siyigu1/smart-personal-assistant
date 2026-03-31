@@ -144,17 +144,17 @@ Continue the interview from where you left off. Do NOT re-ask questions
 they already answered. Use what they told you to build on the conversation.
 
 When you have enough information to fill in ALL of these files, include
-the complete file contents in the FILE_UPDATES section:
-- Workstreams.md
-- Daily Scaffolding.md
-- Weekly Goals.md
-- Automations.md
+them in the "files" field of your JSON response:
+- Workstreams
+- Daily Scaffolding
+- Weekly Goals
+- Automations
 
-Add ONBOARDING_COMPLETE to the end of your SLACK_MESSAGE when you have
-collected enough information and are ready to write the files.
+Set "onboarding_complete" to true when you have collected enough
+information and are writing the files.
 
-If you still need more information, just ask the next questions.
-Do NOT include FILE_UPDATES until you have everything you need.
+If you still need more information, just ask the next questions
+(with empty "files" and "onboarding_complete": false).
 """
         else:
             prompt += """
@@ -221,17 +221,28 @@ Summarize this week and suggest goals for next week.
     prompt += """
 ---
 IMPORTANT: You have NO tool access. Do NOT try to read or write files directly.
-Do NOT use any tools. You can only output text. The daemon handles all file I/O.
+Do NOT use any tools. You can only return JSON. The daemon handles all file I/O.
 
-FORMAT YOUR RESPONSE EXACTLY LIKE THIS:
+RESPOND WITH ONLY THIS JSON (no other text):
 
-SLACK_MESSAGE:
-[Your complete message to post to Slack. Use Slack formatting: *bold* for emphasis, numbered lists for options.]
+```json
+{
+  "messages": [
+    "Your message to the user. Use Slack formatting: *bold* for emphasis."
+  ],
+  "files": {
+    "Workstreams": "Complete new content for the entire Workstreams.md file",
+    "Daily Scaffolding": "Complete new content for Daily Scaffolding.md"
+  },
+  "onboarding_complete": false
+}
+```
 
-FILE_UPDATES:
-[Only include this section if state files need to be updated]
-[filename.md]|||[Complete new content for the entire file]
-END_UPDATES
+Rules:
+- "messages": array of strings to post to the chat channel (usually just one)
+- "files": object mapping filename (without .md) to complete new file content. Only include files that changed. Omit if no files need updating.
+- "onboarding_complete": set to true ONLY when you have gathered all the user's information and are writing their files for the first time
+- File content must be the COMPLETE file, not a diff or partial update
 
 If no file updates are needed, omit the FILE_UPDATES section entirely.
 """

@@ -184,9 +184,11 @@ def run_operation(
     # Parse structured response
     response = llm.parse_response(raw_response)
 
-    # Post to channel
+    # Post to channel (strip internal markers)
     if response.slack_message:
-        channel.post(response.slack_message)
+        clean_msg = response.slack_message.replace("ONBOARDING_COMPLETE", "").strip()
+        if clean_msg:
+            channel.post(clean_msg)
 
     # Apply file updates
     if response.file_updates:

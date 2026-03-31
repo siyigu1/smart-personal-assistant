@@ -48,41 +48,67 @@ class LLMBridge(ABC):
         ...
 
     def parse_response(self, raw: str) -> LLMResponse:
-        """Parse structured LLM output into an LLMResponse.
+        """Parse JSON response from the LLM.
 
         Expected format:
-            SLACK_MESSAGE:
-            [message text]
+        {
+          "messages": ["message to post to Slack", "optional second message"],
+          "files": {
+            "Workstreams": "full file content...",
+            "Daily Scaffolding": "full file content..."
+          },
+          "onboarding_complete": true
+        }
 
-            FILE_UPDATES:
-            [path]|||[content]
-            END_UPDATES
-
-        If no structured format is found, the entire response is
-        treated as the Slack message.
+        The "files" keys are matched to actual filenames by appending .md.
+        If the response is not valid JSON, treat the entire text as a
+        Slack message (graceful fallback).
         """
-        slack_message = raw
+        import json
+
+        raw = raw.strip()
+
+        # Try to extract JSON from the response
+        # LLM might wrap it in ```json ... ``` or have text before/after
+        json_str = raw
+        if "```json" in raw:
+            json_str = raw.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif "```" in raw:
+            json_str = raw.split("```", 1)[1].split("```", 1)[0].strip()
+
+        # Try to find JSON object in the response
+        if not json_str.startswith("{"):
+            start = json_str.find("{")
+            if start >= 0:
+                json_str = json_str[start:]
+
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            # Fallback: treat entire response as a Slack message
+            return LLMResponse(
+                slack_message=raw,
+                file_updates={},
+                raw=raw,
+            )
+
+        # Extract messages
+        messages = data.get("messages", [])
+        if isinstance(messages, str):
+            messages = [messages]
+        slack_message = "\n\n".join(messages)
+
+        # Extract file updates — keys map to filenames
+        files = data.get("files", {})
         file_updates = {}
+        for key, content in files.items():
+            # Normalize: "Workstreams" → "Workstreams.md"
+            filename = key if key.endswith(".md") else f"{key}.md"
+            file_updates[filename] = content
 
-        # Extract SLACK_MESSAGE section
-        if "SLACK_MESSAGE:" in raw:
-            parts = raw.split("SLACK_MESSAGE:", 1)
-            remainder = parts[1]
-
-            if "FILE_UPDATES:" in remainder:
-                slack_message = remainder.split("FILE_UPDATES:", 1)[0].strip()
-            else:
-                slack_message = remainder.strip()
-
-        # Extract FILE_UPDATES section
-        if "FILE_UPDATES:" in raw and "END_UPDATES" in raw:
-            updates_section = raw.split("FILE_UPDATES:", 1)[1]
-            updates_section = updates_section.split("END_UPDATES", 1)[0].strip()
-
-            for line in updates_section.split("\n"):
-                if "|||" in line:
-                    path, content = line.split("|||", 1)
-                    file_updates[path.strip()] = content.strip()
+        # Check onboarding_complete flag
+        if data.get("onboarding_complete"):
+            slack_message += "\nONBOARDING_COMPLETE"
 
         return LLMResponse(
             slack_message=slack_message,
