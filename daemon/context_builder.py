@@ -85,53 +85,62 @@ def build_prompt(
         A complete prompt string with system instructions and all
         relevant state files inline.
     """
-    # Load system prompt — try START HERE.md first, fall back to SKILL.md
+    from .token_optimizer import (
+        optimize_file_content,
+        optimize_conversation_history,
+        optimize_short_term_memory,
+    )
+
+    # Load and optimize system prompt
     start_here = os.path.join(notes_folder, "START HERE.md")
     skill_path = os.path.join(notes_folder, "skills", "mission-control", "SKILL.md")
     system_prompt = read_file(start_here) or read_file(skill_path) or ""
+    system_prompt = optimize_file_content("START HERE.md", system_prompt)
 
-    # Load playbook
+    # Load and optimize playbook
     playbook_path = os.path.join(notes_folder, "Cowork Agent Playbook.md")
-    playbook = read_file(playbook_path) or ""
+    playbook_raw = read_file(playbook_path) or ""
+    playbook = optimize_file_content("Playbook.md", playbook_raw)
 
-    # Load operation-specific state files
+    # Load and optimize operation-specific state files
     files_needed = OPERATION_FILES.get(operation, OPERATION_FILES["message_response"])
     state_content = ""
     for filename in files_needed:
         file_path = os.path.join(notes_folder, filename)
         content = read_file(file_path)
         if content:
-            state_content += f"\n\n--- {filename} ---\n{content}"
+            optimized = optimize_file_content(filename, content)
+            if optimized:
+                state_content += f"\n\n--- {filename} ---\n{optimized}"
 
     # Build the full prompt
     prompt = f"""{system_prompt}
 
---- Cowork Agent Playbook.md ---
+--- Playbook ---
 {playbook}
 
---- Current State Files ---
+--- State Files ---
 {state_content}
 """
 
     if slack_history:
-        prompt += f"\n--- Recent Slack Conversation ---\n{slack_history}\n"
+        prompt += f"\n--- Recent Slack ---\n{slack_history}\n"
 
     if conversation_history:
-        prompt += f"\n--- Conversation So Far ---\n{conversation_history}\n"
+        optimized_history = optimize_conversation_history(conversation_history)
+        prompt += f"\n--- Conversation ---\n{optimized_history}\n"
 
-    # Load short-term memory if it exists (strip internal timestamps)
+    # Load short-term memory (clean, no timestamps)
     stm_path = os.path.join(notes_folder, ".short-term-memory.json")
     if os.path.exists(stm_path):
         try:
             import json as _json
             with open(stm_path) as f:
                 stm_raw = _json.load(f)
-            # Extract just the values, hide the TTL metadata
-            stm_clean = {k: v["value"] if isinstance(v, dict) and "value" in v else v
-                         for k, v in stm_raw.items()}
+            stm_clean = optimize_short_term_memory(stm_raw)
             if stm_clean:
-                stm_text = _json.dumps(stm_clean, indent=2, ensure_ascii=False)
-                prompt += f"\n--- Your Short-Term Memory (from previous messages) ---\n{stm_text}\nUse this to maintain context. Update it in your response's short_term_memory field if needed.\n"
+                stm_text = _json.dumps(stm_clean, ensure_ascii=False)
+                prompt += f"\n--- Memory ---\n{stm_text}\n"
         except (ValueError, OSError):
             pass
 
@@ -258,11 +267,12 @@ RESPOND WITH ONLY THIS JSON (no other text):
 ```
 
 Rules:
-- "messages": array of strings to post to the chat channel (usually just one)
-- "files": object mapping filename (without .md) to complete new file content. Only include files that changed. Omit or set to {} if no files need updating.
-- "short_term_memory": object for tracking temporary context across messages — things like partial answers, clarifications needed, conversation state. This is NOT saved to the user's files. It is fed back to you on the next message. Use it to avoid re-asking questions. Omit or set to {} if nothing to remember.
-- "onboarding_complete": set to true ONLY when you have gathered all the user's information and are writing their files for the first time
-- File content must be the COMPLETE file, not a diff or partial update
+- "messages": array of strings to post to chat. Usually one. Use Slack *bold* formatting.
+- "files": filename (no .md) → complete file content. ONLY include files that changed. Omit if none.
+- "short_term_memory": temp context to remember across messages (partial answers, clarifications, state). NOT saved to user files. Fed back to you next call. Use to avoid re-asking. Omit if empty.
+- "onboarding_complete": true ONLY when you've gathered everything and are writing files
+- File content = COMPLETE file, not a diff
+- Keep your JSON compact — no unnecessary whitespace in file content. The daemon handles formatting.
 
 If no file updates are needed, omit the FILE_UPDATES section entirely.
 """
