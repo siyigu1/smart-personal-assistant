@@ -202,12 +202,20 @@ def main():
     if needs_onboarding(config):
         print("[daemon] New user detected — starting onboarding conversation")
         activity.log("onboarding", "New user detected, starting onboarding")
-        channel.post(
-            f"Hi {config.user_name}! I'm {config.assistant_name}. "
-            f"Let's set up your system — I'll ask a few questions about "
-            f"your schedule and projects. Takes about 15 minutes.\n\n"
-            f"Ready to get started? (just reply 'yes' or 'let's go')"
-        )
+
+        if config.language == "zh":
+            channel.post(
+                f"你好 {config.user_name}！我是{config.assistant_name}。"
+                f"让我们来设置你的系统吧——我会问几个关于你的日程和项目的问题，大概 15 分钟。\n\n"
+                f"准备好了吗？（回复'好'或'开始'就行）"
+            )
+        else:
+            channel.post(
+                f"Hi {config.user_name}! I'm {config.assistant_name}. "
+                f"Let's set up your system — I'll ask a few questions about "
+                f"your schedule and projects. Takes about 15 minutes.\n\n"
+                f"Ready to get started? (just reply 'yes' or 'let's go')"
+            )
         run_operation(llm, channel, config, "onboarding", activity=activity)
 
     # Cross-tasks (optional)

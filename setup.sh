@@ -728,13 +728,40 @@ generate_files() {
         framework_src="$SCRIPT_DIR/framework/zh"
     fi
 
-    # Copy framework files (skip existing to preserve user data)
+    # Detect if language changed — if so, re-copy framework files
+    local lang_changed=false
+    if [[ -f "$NOTES_FOLDER/START HERE.md" ]]; then
+        # Check if the existing START HERE.md matches the selected language
+        if [[ "$LANG_CODE" == "zh" ]] && head -1 "$NOTES_FOLDER/START HERE.md" | grep -q "Personal Assistant"; then
+            lang_changed=true
+        elif [[ "$LANG_CODE" == "en" ]] && head -1 "$NOTES_FOLDER/START HERE.md" | grep -q "智能助手"; then
+            lang_changed=true
+        fi
+    fi
+
+    # Copy framework files
+    # - Skip user data files (Workstreams, Weekly Goals, Daily Scaffolding) if they exist and have real content
+    # - Always overwrite reference/template files if language changed
+    local user_data_files="Workstreams.md|Weekly Goals.md|Daily Scaffolding.md|Automations.md|Grocery List.md"
+
     for f in "$framework_src"/*.md; do
         local basename
         basename=$(basename "$f")
         if [[ ! -f "$NOTES_FOLDER/$basename" ]]; then
             cp "$f" "$NOTES_FOLDER/$basename"
             print_success "$basename"
+        elif [[ "$lang_changed" == true && ! "$basename" =~ ^($user_data_files)$ ]]; then
+            # Language changed — overwrite reference files (not user data)
+            cp "$f" "$NOTES_FOLDER/$basename"
+            print_success "$basename (updated)"
+        elif [[ "$lang_changed" == true ]]; then
+            # User data file exists but language changed — only overwrite if still placeholder
+            if grep -q "Not filled in yet\|set during onboarding\|尚未填写\|入门设置时填写\|_to be filled_\|_example:_" "$NOTES_FOLDER/$basename" 2>/dev/null; then
+                cp "$f" "$NOTES_FOLDER/$basename"
+                print_success "$basename (updated)"
+            else
+                print_warning "$basename $MSG_ALREADY_EXISTS"
+            fi
         else
             print_warning "$basename $MSG_ALREADY_EXISTS"
         fi
