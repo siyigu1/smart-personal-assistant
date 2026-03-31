@@ -617,37 +617,37 @@ collect_profile() {
 
         if [[ -d "$icloud_obsidian" ]]; then
             folder_options+=("$icloud_obsidian/Personal Assistant")
-            folder_labels+=("")
+            folder_labels+=("$MSG_PROFILE_ICLOUD")
             default_choice=$option_num
             option_num=$((option_num + 1))
         fi
         if [[ -d "$icloud_docs" ]]; then
             folder_options+=("$icloud_docs/Personal Assistant")
-            folder_labels+=("")
+            folder_labels+=("$MSG_PROFILE_ICLOUD_DOCS")
             option_num=$((option_num + 1))
         fi
         if [[ -d "$dropbox" ]]; then
             folder_options+=("$dropbox/Personal Assistant")
-            folder_labels+=("")
+            folder_labels+=("$MSG_PROFILE_DROPBOX")
             option_num=$((option_num + 1))
         fi
         if [[ -d "$gdrive" ]]; then
             folder_options+=("$gdrive/Personal Assistant")
-            folder_labels+=("")
+            folder_labels+=("$MSG_PROFILE_GDRIVE")
             option_num=$((option_num + 1))
         fi
         if [[ -d "$onedrive" ]]; then
             folder_options+=("$onedrive/Personal Assistant")
-            folder_labels+=("")
+            folder_labels+=("$MSG_PROFILE_ONEDRIVE")
             option_num=$((option_num + 1))
         fi
 
         folder_options+=("$HOME/Documents/Personal Assistant")
-        folder_labels+=("")
+        folder_labels+=("$MSG_PROFILE_LOCAL")
         option_num=$((option_num + 1))
 
         folder_options+=("custom")
-        folder_labels+=("")
+        folder_labels+=("$MSG_PROFILE_CUSTOM")
 
         for i in "${!folder_labels[@]}"; do
             echo "    $((i+1)). ${folder_labels[$i]}"
