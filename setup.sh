@@ -722,7 +722,11 @@ generate_files() {
 
     mkdir -p "$NOTES_FOLDER"
 
+    # Use Chinese framework files if language is zh
     local framework_src="$SCRIPT_DIR/framework"
+    if [[ "$LANG_CODE" == "zh" && -d "$SCRIPT_DIR/framework/zh" ]]; then
+        framework_src="$SCRIPT_DIR/framework/zh"
+    fi
 
     # Copy framework files (skip existing to preserve user data)
     for f in "$framework_src"/*.md; do
@@ -732,7 +736,7 @@ generate_files() {
             cp "$f" "$NOTES_FOLDER/$basename"
             print_success "$basename"
         else
-            print_warning "$basename already exists — skipping"
+            print_warning "$basename $MSG_ALREADY_EXISTS"
         fi
     done
 
