@@ -37,7 +37,16 @@ def needs_onboarding(config: Config) -> bool:
         return True
     with open(ws_path) as f:
         content = f.read()
-    return "Not filled in yet" in content or "set during onboarding" in content
+    markers = [
+        "Not filled in yet",      # English template
+        "set during onboarding",  # English template
+        "尚未填写",                # Chinese template
+        "入门设置时填写",           # Chinese template
+        "{{WORKSTREAM_SECTIONS}}", # Raw template placeholder (never substituted)
+        "（在这里添加想法）",        # Chinese empty template
+        "_(Add ideas here",       # English empty template
+    ]
+    return any(m in content for m in markers)
 
 
 def create_channel(config: Config):
