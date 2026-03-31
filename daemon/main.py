@@ -14,53 +14,37 @@ from datetime import datetime
 from typing import Optional
 
 from .config import load_config, Config
-from .channels.slack import SlackChannel
 from .llm.claude_cli import ClaudeCLI
 from .llm.base import LLMBridge
-from .reminder_engine import ReminderEngine
-from .cross_tasks import CrossTaskChecker
 from .automations import check_and_run as check_automations
 from .context_builder import build_prompt
 from .file_updater import apply_updates
 from .activity_log import ActivityLog
-from .conversation import Conversation
+from .user_context import UserContext, create_user_contexts
 
 
-def needs_onboarding(config: Config) -> bool:
-    """Check if the user needs onboarding (first run).
+def needs_onboarding(notes_folder: str) -> bool:
+    """Check if a user needs onboarding (first run).
 
     Returns True if the Workstreams.md file still contains the
     onboarding placeholder text, meaning the AI hasn't interviewed
     the user yet.
     """
-    ws_path = os.path.join(config.notes_folder, "Workstreams.md")
+    ws_path = os.path.join(notes_folder, "Workstreams.md")
     if not os.path.exists(ws_path):
         return True
     with open(ws_path) as f:
         content = f.read()
     markers = [
-        "Not filled in yet",      # English template
-        "set during onboarding",  # English template
-        "尚未填写",                # Chinese template
-        "入门设置时填写",           # Chinese template
-        "{{WORKSTREAM_SECTIONS}}", # Raw template placeholder (never substituted)
-        "（在这里添加想法）",        # Chinese empty template
-        "_(Add ideas here",       # English empty template
+        "Not filled in yet",
+        "set during onboarding",
+        "尚未填写",
+        "入门设置时填写",
+        "{{WORKSTREAM_SECTIONS}}",
+        "（在这里添加想法）",
+        "_(Add ideas here",
     ]
     return any(m in content for m in markers)
-
-
-def create_channel(config: Config):
-    """Create the appropriate channel client based on config."""
-    if config.channel_provider == "slack":
-        state_file = os.path.join(config.notes_folder, ".mc-state.json")
-        return SlackChannel(
-            bot_token=config.slack_bot_token,
-            channel_id=config.slack_channel_id,
-            state_file=state_file,
-        )
-    else:
-        raise ValueError(f"Unknown channel provider: {config.channel_provider}")
 
 
 def create_llm(config: Config, channel) -> LLMBridge:
@@ -137,7 +121,7 @@ def notify_llm_failure(channel, operation: str, config=None, activity=None):
 
 def run_operation(
     llm: LLMBridge,
-    channel,
+    user: UserContext,
     config: Config,
     operation: str,
     user_message: str = "",
@@ -149,6 +133,8 @@ def run_operation(
     This is the only function that invokes the LLM. Everything else
     in the daemon is pure code.
     """
+    channel = user.channel
+
     # Build Slack history context for operations that need it
     slack_history = ""
     if operation in ("midday_checkin", "afternoon_checkin", "eod_summary"):
@@ -160,7 +146,7 @@ def run_operation(
 
     # Build the prompt with only relevant state files
     prompt = build_prompt(
-        notes_folder=config.notes_folder,
+        notes_folder=user.notes_folder,
         operation=operation,
         user_message=user_message,
         slack_history=slack_history,
@@ -192,13 +178,13 @@ def run_operation(
 
     # Apply file updates
     if response.file_updates:
-        updated = apply_updates(response, config.notes_folder)
+        updated = apply_updates(response, user.notes_folder)
         print(f"[daemon] Applied {updated} file update(s)")
 
     # Save short-term memory with timestamps for TTL
     if response.short_term_memory:
         import json as _json
-        stm_path = os.path.join(config.notes_folder, ".short-term-memory.json")
+        stm_path = os.path.join(user.notes_folder, ".short-term-memory.json")
 
         # Load existing, merge new entries with timestamps
         existing = {}
@@ -253,59 +239,52 @@ def main():
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs")
     activity = ActivityLog(log_dir, ttl_days=7)
 
-    print(f"[daemon] Personal Assistant for {config.user_name}")
-    print(f"[daemon] Notes: {config.notes_folder}")
-    print(f"[daemon] Channel: {config.channel_provider} ({config.slack_channel_name})")
+    # Create LLM (shared across all users — same Claude CLI)
+    # Use primary user's channel for error notifications
+    users = create_user_contexts(config)
+    llm = create_llm(config, users[0].channel)
+
+    print(f"[daemon] Users: {', '.join(u.user_name for u in users)}")
+    for u in users:
+        print(f"[daemon]   {u.user_name}: {u.slack_channel_name} → {u.notes_folder}")
     print(f"[daemon] LLM: {config.llm_provider}")
 
-    # Create components
-    channel = create_channel(config)
-    llm = create_llm(config, channel)
-    reminders = ReminderEngine(config.notes_folder)
-    conversation = Conversation(config.notes_folder)
-
-    activity.startup(config.user_name, config.notes_folder)
+    activity.startup(
+        ", ".join(u.user_name for u in users),
+        config.notes_folder,
+    )
 
     # Clean up old logs on startup
     deleted = activity.cleanup_old_logs()
     if deleted > 0:
         print(f"[daemon] Cleaned up {deleted} old log file(s)")
 
-    # Check if onboarding is needed (first run or resumed)
-    if needs_onboarding(config) and not conversation.is_active():
-        print("[daemon] New user detected — starting onboarding conversation")
-        activity.log("onboarding", "New user detected, starting onboarding")
-        conversation.start("onboarding")
+    # Check onboarding for each user
+    for user in users:
+        if needs_onboarding(user.notes_folder) and not user.conversation.is_active():
+            print(f"[daemon] New user {user.user_name} — starting onboarding")
+            activity.log("onboarding", f"Starting onboarding for {user.user_name}")
+            user.conversation.start("onboarding")
 
-        if config.language == "zh":
-            welcome = (
-                f"你好 {config.user_name}！我是{config.assistant_name}。"
-                f"让我们来设置你的系统吧——我会问几个关于你的日程和项目的问题，大概 15 分钟。\n\n"
-                f"准备好了吗？（回复'好'或'开始'就行）"
-            )
-        else:
-            welcome = (
-                f"Hi {config.user_name}! I'm {config.assistant_name}. "
-                f"Let's set up your system — I'll ask a few questions about "
-                f"your schedule and projects. Takes about 15 minutes.\n\n"
-                f"Ready to get started? (just reply 'yes' or 'let's go')"
-            )
-        channel.post(welcome)
+            if user.language == "zh":
+                welcome = (
+                    f"你好 {user.user_name}！我是{user.assistant_name}。"
+                    f"让我们来设置你的系统吧——我会问几个关于你的日程和项目的问题，大概 15 分钟。\n\n"
+                    f"准备好了吗？（回复'好'或'开始'就行）"
+                )
+            else:
+                welcome = (
+                    f"Hi {user.user_name}! I'm {user.assistant_name}. "
+                    f"Let's set up your system — I'll ask a few questions about "
+                    f"your schedule and projects. Takes about 15 minutes.\n\n"
+                    f"Ready to get started? (just reply 'yes' or 'let's go')"
+                )
+            user.channel.post(welcome)
+            run_operation(llm, user, config, "onboarding", activity=activity)
 
-        # Get the first onboarding question from the LLM
-        run_operation(llm, channel, config, "onboarding", activity=activity)
-        # Save the LLM's first message to conversation history
-        recent = channel.get_recent_history(limit=1)
-        if recent and recent[0].is_bot:
-            conversation.add_assistant_message(recent[0].text)
-
-    # Cross-tasks (optional)
-    cross_tasks = None
-    if config.features.family:
-        cross_tasks_path = os.path.join(
-            os.path.dirname(config.notes_folder), "cross-tasks.json"
-        )
-        cross_tasks = CrossTaskChecker(cross_tasks_path, config.user_name, config.language)
+            recent = user.channel.get_recent_history(limit=1)
+            if recent and recent[0].is_bot:
+                user.conversation.add_assistant_message(recent[0].text)
 
     # Graceful shutdown
     running = True
@@ -319,113 +298,103 @@ def main():
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    # Polling intervals
-    REMINDER_INTERVAL = 60       # Check reminders every 60s
-    POLL_INTERVAL = 60           # Check messages every 60s
+    # Round-robin: one user per cycle
+    user_index = 0
+    CYCLE_INTERVAL = 60
 
-    last_reminder_check = 0
-    last_message_check = 0
+    last_cycle = 0
 
     print("[daemon] Starting main loop...")
 
-    # Main loop
+    # Main loop — round-robin: one user per cycle
     while running:
         now = time.time()
 
-        # 1. Fire due reminders (every minute)
-        if now - last_reminder_check >= REMINDER_INTERVAL:
-            fired = reminders.check_and_fire(channel)
-            if fired > 0:
-                for _ in range(fired):
-                    activity.reminder_fired("(see reminders.json)")
-            last_reminder_check = now
+        if now - last_cycle < CYCLE_INTERVAL:
+            time.sleep(10)
+            continue
 
-        # 2. Check for new messages (every 5 min)
-        if now - last_message_check >= POLL_INTERVAL:
-            new_msg = channel.check_for_new_message()
-            activity.poll(new_msg is not None,
-                         new_msg.text if new_msg else "")
-            if new_msg:
-                if config.language == "zh":
-                    channel.post("收到 — 正在处理")
-                else:
-                    channel.post("Got it — working on this now")
+        # Pick the current user for this cycle
+        user = users[user_index % len(users)]
+        user_index += 1
+        last_cycle = now
 
-                # Route: active conversation > needs onboarding > normal
-                if conversation.is_active():
-                    # Multi-turn conversation in progress
-                    conv_type = conversation.get_type()
-                    conversation.add_user_message(new_msg.text)
-                    history = conversation.get_history_text()
+        print(f"[cycle] {user.user_name} ({user.slack_channel_name})")
 
-                    run_operation(
-                        llm, channel, config,
-                        conv_type,
-                        user_message=new_msg.text,
-                        activity=activity,
-                        conversation_history=history,
-                    )
+        # 1. Fire due reminders (pure code, zero tokens)
+        fired = user.reminders.check_and_fire(user.channel)
+        if fired > 0:
+            activity.reminder_fired(f"{user.user_name}: {fired} reminder(s)")
 
-                    # Save assistant response to history
-                    recent = channel.get_recent_history(limit=1)
-                    if recent and recent[0].is_bot:
-                        conversation.add_assistant_message(recent[0].text)
+        # 2. Check for new messages
+        new_msg = user.channel.check_for_new_message()
+        activity.poll(new_msg is not None,
+                     f"{user.user_name}: {new_msg.text}" if new_msg else user.user_name)
 
-                        # Check if onboarding is truly complete:
-                        # LLM said ONBOARDING_COMPLETE AND files no longer have placeholders
-                        if "ONBOARDING_COMPLETE" in recent[0].text:
-                            if not needs_onboarding(config):
-                                print("[daemon] Onboarding complete — files updated")
-                                conversation.end()
-                                activity.log("onboarding", "Onboarding completed, files written")
-                            else:
-                                print("[daemon] LLM said complete but files still have placeholders — continuing")
-                                activity.log("onboarding", "LLM said complete but files not updated, continuing")
+        if new_msg:
+            if user.language == "zh":
+                user.channel.post("收到 — 正在处理")
+            else:
+                user.channel.post("Got it — working on this now")
 
-                elif needs_onboarding(config):
-                    # Not in active conversation but files still need onboarding
-                    # Resume onboarding
-                    print("[daemon] Files still need onboarding — resuming")
-                    conversation.start("onboarding")
-                    conversation.add_user_message(new_msg.text)
+            # Route: active conversation > needs onboarding > normal
+            if user.conversation.is_active():
+                conv_type = user.conversation.get_type()
+                user.conversation.add_user_message(new_msg.text)
+                history = user.conversation.get_history_text()
 
-                    run_operation(
-                        llm, channel, config,
-                        "onboarding",
-                        user_message=new_msg.text,
-                        activity=activity,
-                    )
+                run_operation(
+                    llm, user, config, conv_type,
+                    user_message=new_msg.text,
+                    activity=activity,
+                    conversation_history=history,
+                )
 
-                    recent = channel.get_recent_history(limit=1)
-                    if recent and recent[0].is_bot:
-                        conversation.add_assistant_message(recent[0].text)
-                else:
-                    # Normal message response
-                    run_operation(
-                        llm, channel, config,
-                        "message_response",
-                        user_message=new_msg.text,
-                        activity=activity,
-                    )
-            last_message_check = now
+                recent = user.channel.get_recent_history(limit=1)
+                if recent and recent[0].is_bot:
+                    user.conversation.add_assistant_message(recent[0].text)
 
-        # 3. Run automations from Automations.md
-        auto_count = check_automations(config.notes_folder, channel, llm, config)
+                    if "ONBOARDING_COMPLETE" in recent[0].text:
+                        if not needs_onboarding(user.notes_folder):
+                            print(f"[daemon] Onboarding complete for {user.user_name}")
+                            user.conversation.end()
+                            activity.log("onboarding", f"{user.user_name}: completed")
+                        else:
+                            print(f"[daemon] {user.user_name}: LLM said complete but files still have placeholders")
+
+            elif needs_onboarding(user.notes_folder):
+                print(f"[daemon] {user.user_name}: resuming onboarding")
+                user.conversation.start("onboarding")
+                user.conversation.add_user_message(new_msg.text)
+
+                run_operation(
+                    llm, user, config, "onboarding",
+                    user_message=new_msg.text, activity=activity,
+                )
+
+                recent = user.channel.get_recent_history(limit=1)
+                if recent and recent[0].is_bot:
+                    user.conversation.add_assistant_message(recent[0].text)
+            else:
+                run_operation(
+                    llm, user, config, "message_response",
+                    user_message=new_msg.text, activity=activity,
+                )
+
+        # 3. Run automations from this user's Automations.md
+        auto_count = check_automations(user.notes_folder, user.channel, llm, config)
         if auto_count > 0:
-            activity.automation_fired(f"{auto_count} automation(s)", "mixed")
+            activity.automation_fired(f"{user.user_name}: {auto_count} automation(s)", "mixed")
 
-        # 4. Check cross-tasks (if family extension enabled)
-        if cross_tasks:
-            cross_tasks.check_and_notify(channel)
+        # 4. Check cross-tasks
+        if user.cross_tasks:
+            user.cross_tasks.check_and_notify(user.channel)
 
-        # For --once mode (testing)
-        if args.once:
-            print("[daemon] --once mode, exiting after first cycle")
+        # For --once mode (testing) — run one cycle per user then exit
+        if args.once and user_index >= len(users):
+            print("[daemon] --once mode, exiting after one round")
             activity.log("info", "--once mode, exiting")
             break
-
-        # Sleep briefly to avoid busy-waiting
-        time.sleep(10)
 
     print("[daemon] Stopped.")
 
