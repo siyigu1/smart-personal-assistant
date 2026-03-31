@@ -18,15 +18,16 @@ cross-tasks.json
 
 # Generated user files (setup.sh creates these in user's notes folder, not in repo)
 # But if someone accidentally runs setup.sh inside the repo dir:
-Workstreams.md
-Weekly Goals.md
-Daily Scaffolding.md
-Cowork Agent Playbook.md
-Cognitive Levels.md
-Priority Framework.md
-Grocery List.md
-Travel Master List.md
-skills/mission-control/
+# Ignore at root level only, not inside framework/
+/Workstreams.md
+/Weekly Goals.md
+/Daily Scaffolding.md
+/Cowork Agent Playbook.md
+/Cognitive Levels.md
+/Priority Framework.md
+/Grocery List.md
+/Travel Master List.md
+/skills/mission-control/
 
 # Python
 __pycache__/
