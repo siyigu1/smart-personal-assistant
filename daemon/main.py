@@ -23,6 +23,7 @@ from .automations import check_and_run as check_automations
 from .context_builder import build_prompt
 from .file_updater import apply_updates
 from .activity_log import ActivityLog
+from .conversation import Conversation
 
 
 def needs_onboarding(config: Config) -> bool:
@@ -141,6 +142,7 @@ def run_operation(
     operation: str,
     user_message: str = "",
     activity: Optional[ActivityLog] = None,
+    conversation_history: str = "",
 ):
     """Run an LLM-powered operation and post results.
 
@@ -162,6 +164,7 @@ def run_operation(
         operation=operation,
         user_message=user_message,
         slack_history=slack_history,
+        conversation_history=conversation_history,
     )
 
     # Invoke the LLM
@@ -230,6 +233,7 @@ def main():
     channel = create_channel(config)
     llm = create_llm(config, channel)
     reminders = ReminderEngine(config.notes_folder)
+    conversation = Conversation(config.notes_folder)
 
     activity.startup(config.user_name, config.notes_folder)
 
@@ -238,25 +242,33 @@ def main():
     if deleted > 0:
         print(f"[daemon] Cleaned up {deleted} old log file(s)")
 
-    # Check if onboarding is needed (first run)
-    if needs_onboarding(config):
+    # Check if onboarding is needed (first run or resumed)
+    if needs_onboarding(config) and not conversation.is_active():
         print("[daemon] New user detected — starting onboarding conversation")
         activity.log("onboarding", "New user detected, starting onboarding")
+        conversation.start("onboarding")
 
         if config.language == "zh":
-            channel.post(
+            welcome = (
                 f"你好 {config.user_name}！我是{config.assistant_name}。"
                 f"让我们来设置你的系统吧——我会问几个关于你的日程和项目的问题，大概 15 分钟。\n\n"
                 f"准备好了吗？（回复'好'或'开始'就行）"
             )
         else:
-            channel.post(
+            welcome = (
                 f"Hi {config.user_name}! I'm {config.assistant_name}. "
                 f"Let's set up your system — I'll ask a few questions about "
                 f"your schedule and projects. Takes about 15 minutes.\n\n"
                 f"Ready to get started? (just reply 'yes' or 'let's go')"
             )
+        channel.post(welcome)
+
+        # Get the first onboarding question from the LLM
         run_operation(llm, channel, config, "onboarding", activity=activity)
+        # Save the LLM's first message to conversation history
+        recent = channel.get_recent_history(limit=1)
+        if recent and recent[0].is_bot:
+            conversation.add_assistant_message(recent[0].text)
 
     # Cross-tasks (optional)
     cross_tasks = None
@@ -309,12 +321,40 @@ def main():
                     channel.post("收到 — 正在处理")
                 else:
                     channel.post("Got it — working on this now")
-                run_operation(
-                    llm, channel, config,
-                    "message_response",
-                    user_message=new_msg.text,
-                    activity=activity,
-                )
+
+                # Route to onboarding or normal message handling
+                if conversation.is_active():
+                    # Multi-turn conversation in progress
+                    conv_type = conversation.get_type()
+                    conversation.add_user_message(new_msg.text)
+                    history = conversation.get_history_text()
+
+                    run_operation(
+                        llm, channel, config,
+                        conv_type,
+                        user_message=new_msg.text,
+                        activity=activity,
+                        conversation_history=history,
+                    )
+
+                    # Save assistant response to history
+                    recent = channel.get_recent_history(limit=1)
+                    if recent and recent[0].is_bot:
+                        conversation.add_assistant_message(recent[0].text)
+
+                        # Check if onboarding is complete
+                        if "ONBOARDING_COMPLETE" in recent[0].text:
+                            print("[daemon] Onboarding complete")
+                            conversation.end()
+                            activity.log("onboarding", "Onboarding completed")
+                else:
+                    # Normal message response
+                    run_operation(
+                        llm, channel, config,
+                        "message_response",
+                        user_message=new_msg.text,
+                        activity=activity,
+                    )
             last_message_check = now
 
         # 3. Run automations from Automations.md

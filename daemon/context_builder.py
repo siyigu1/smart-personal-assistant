@@ -70,6 +70,7 @@ def build_prompt(
     operation: str,
     user_message: str = "",
     slack_history: str = "",
+    conversation_history: str = "",
 ) -> str:
     """Build a complete prompt for an LLM invocation.
 
@@ -78,6 +79,7 @@ def build_prompt(
         operation: The operation type (morning_dispatch, message_response, etc.)
         user_message: The user's message (for message_response operations).
         slack_history: Recent Slack conversation history (for context).
+        conversation_history: Full multi-turn conversation history (for onboarding, etc.).
 
     Returns:
         A complete prompt string with system instructions and all
@@ -114,6 +116,9 @@ def build_prompt(
     if slack_history:
         prompt += f"\n--- Recent Slack Conversation ---\n{slack_history}\n"
 
+    if conversation_history:
+        prompt += f"\n--- Conversation So Far ---\n{conversation_history}\n"
+
     if operation == "automation":
         prompt += f"""
 ---
@@ -125,22 +130,45 @@ Follow these instructions:
 Use the state files above as context. Verify the day-of-week before stating it.
 """
     elif operation == "onboarding":
-        prompt += """
+        if conversation_history:
+            prompt += f"""
+---
+OPERATION: Onboarding — Continuing conversation.
+
+You are in the middle of onboarding this user. The full conversation
+so far is in the "Conversation So Far" section above.
+
+The user just replied: {user_message}
+
+Continue the interview from where you left off. Do NOT re-ask questions
+they already answered. Use what they told you to build on the conversation.
+
+When you have enough information to fill in ALL of these files, include
+the complete file contents in the FILE_UPDATES section:
+- Workstreams.md
+- Daily Scaffolding.md
+- Weekly Goals.md
+- Automations.md
+
+Add ONBOARDING_COMPLETE to the end of your SLACK_MESSAGE when you have
+collected enough information and are ready to write the files.
+
+If you still need more information, just ask the next questions.
+Do NOT include FILE_UPDATES until you have everything you need.
+"""
+        else:
+            prompt += """
 ---
 OPERATION: Onboarding — First-time user setup.
 
 Read 'Getting Started.md' carefully. It contains the full interview guide.
 Follow it step by step to learn about this user's life, schedule, and projects.
 
-After the conversation, update these files with what you learned:
-- Daily Scaffolding.md — their time blocks, commitments, capacity
-- Workstreams.md — their projects with priorities and details
-- Weekly Goals.md — set up the structure with their workstream names
-
 This is a multi-turn conversation. Ask 2-3 questions at a time, respond
 warmly, then ask the next batch. Make it feel like a 15-minute chat.
 
-Start with Part 1 from the Getting Started guide.
+Start with Part 1 from the Getting Started guide. Do NOT try to do
+everything in one message — the user will reply and you'll continue.
 """
     elif operation == "message_response" and user_message:
         prompt += f"""
