@@ -67,6 +67,7 @@ class ClaudeCLI(LLMBridge):
                     "claude",
                     "-p",
                     "--output-format", "text",
+                    "--tools", "",
                 ],
                 input=prompt,
                 capture_output=True,

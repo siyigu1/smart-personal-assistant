@@ -192,6 +192,9 @@ Summarize this week and suggest goals for next week.
     # Output format instructions
     prompt += """
 ---
+IMPORTANT: You have NO tool access. Do NOT try to read or write files directly.
+Do NOT use any tools. You can only output text. The daemon handles all file I/O.
+
 FORMAT YOUR RESPONSE EXACTLY LIKE THIS:
 
 SLACK_MESSAGE:
@@ -199,7 +202,7 @@ SLACK_MESSAGE:
 
 FILE_UPDATES:
 [Only include this section if state files need to be updated]
-[Full file path]|||[Complete new content for the file section that changed]
+[filename.md]|||[Complete new content for the entire file]
 END_UPDATES
 
 If no file updates are needed, omit the FILE_UPDATES section entirely.
