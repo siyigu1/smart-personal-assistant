@@ -322,7 +322,7 @@ def main():
                 else:
                     channel.post("Got it — working on this now")
 
-                # Route to onboarding or normal message handling
+                # Route: active conversation > needs onboarding > normal
                 if conversation.is_active():
                     # Multi-turn conversation in progress
                     conv_type = conversation.get_type()
@@ -342,11 +342,34 @@ def main():
                     if recent and recent[0].is_bot:
                         conversation.add_assistant_message(recent[0].text)
 
-                        # Check if onboarding is complete
+                        # Check if onboarding is truly complete:
+                        # LLM said ONBOARDING_COMPLETE AND files no longer have placeholders
                         if "ONBOARDING_COMPLETE" in recent[0].text:
-                            print("[daemon] Onboarding complete")
-                            conversation.end()
-                            activity.log("onboarding", "Onboarding completed")
+                            if not needs_onboarding(config):
+                                print("[daemon] Onboarding complete — files updated")
+                                conversation.end()
+                                activity.log("onboarding", "Onboarding completed, files written")
+                            else:
+                                print("[daemon] LLM said complete but files still have placeholders — continuing")
+                                activity.log("onboarding", "LLM said complete but files not updated, continuing")
+
+                elif needs_onboarding(config):
+                    # Not in active conversation but files still need onboarding
+                    # Resume onboarding
+                    print("[daemon] Files still need onboarding — resuming")
+                    conversation.start("onboarding")
+                    conversation.add_user_message(new_msg.text)
+
+                    run_operation(
+                        llm, channel, config,
+                        "onboarding",
+                        user_message=new_msg.text,
+                        activity=activity,
+                    )
+
+                    recent = channel.get_recent_history(limit=1)
+                    if recent and recent[0].is_bot:
+                        conversation.add_assistant_message(recent[0].text)
                 else:
                     # Normal message response
                     run_operation(
