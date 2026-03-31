@@ -26,20 +26,25 @@ DIM='\033[2m'
 # ─── Helpers ────────────────────────────────────────────────────
 
 check_running() {
+    # Check background service first (launchd/systemd)
     if [[ "$(uname)" == "Darwin" ]]; then
         if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
             echo -e "  ${GREEN}●${NC} Daemon is ${GREEN}running${NC} (launchd)"
-        else
-            echo -e "  ${RED}●${NC} Daemon is ${RED}not running${NC}"
-            echo -e "  ${DIM}  Start with: ./run.sh${NC}"
+            return
         fi
     else
         if systemctl --user is-active mission-control &>/dev/null; then
             echo -e "  ${GREEN}●${NC} Daemon is ${GREEN}running${NC} (systemd)"
-        else
-            echo -e "  ${RED}●${NC} Daemon is ${RED}not running${NC}"
-            echo -e "  ${DIM}  Start with: ./run.sh${NC}"
+            return
         fi
+    fi
+
+    # Fallback: check if running as a foreground process
+    if pgrep -f "daemon.main" >/dev/null 2>&1; then
+        echo -e "  ${GREEN}●${NC} Daemon is ${GREEN}running${NC} (foreground)"
+    else
+        echo -e "  ${RED}●${NC} Daemon is ${RED}not running${NC}"
+        echo -e "  ${DIM}  Start with: ./run.sh${NC}"
     fi
 }
 
