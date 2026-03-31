@@ -528,6 +528,20 @@ except Exception as e:
                 if ! confirm "$MSG_SLACK_TEST_RETRY"; then
                     break
                 fi
+
+                # Re-collect credentials
+                echo ""
+                echo -e "  ${BOLD}$MSG_SLACK_PASTE${NC}"
+                echo -e "  ${DIM}(${SLACK_BOT_TOKEN:0:10}...${SLACK_BOT_TOKEN: -4})${NC}"
+                ask_default "$MSG_SLACK_PASTE" "$SLACK_BOT_TOKEN" SLACK_BOT_TOKEN
+
+                echo ""
+                echo -e "  ${DIM}($SLACK_CHANNEL_ID)${NC}"
+                ask_default "$MSG_SLACK_CHANNEL_ID" "$SLACK_CHANNEL_ID" SLACK_CHANNEL_ID
+
+                echo ""
+                echo -e "  ${DIM}($SLACK_CHANNEL_NAME)${NC}"
+                ask_default "$MSG_SLACK_CHANNEL_NAME" "$SLACK_CHANNEL_NAME" SLACK_CHANNEL_NAME
             fi
         done
     fi
