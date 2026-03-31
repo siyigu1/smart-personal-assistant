@@ -73,12 +73,21 @@ class LLMBridge(ABC):
         # Try to extract JSON from the response
         # LLM might wrap it in ```json ... ``` or have text before/after
         json_str = raw
+
+        # Strip code block wrappers (```json ... ``` or just ``` ... ```)
         if "```json" in raw:
             json_str = raw.split("```json", 1)[1].split("```", 1)[0].strip()
         elif "```" in raw:
             json_str = raw.split("```", 1)[1].split("```", 1)[0].strip()
 
-        # Try to find JSON object in the response
+        # Handle case where --output-format text strips backticks,
+        # leaving "json\n{...}" at the start
+        if json_str.startswith("json\n"):
+            json_str = json_str[5:].strip()
+        elif json_str.startswith("json\r\n"):
+            json_str = json_str[6:].strip()
+
+        # Find the JSON object in the response
         if not json_str.startswith("{"):
             start = json_str.find("{")
             if start >= 0:
@@ -86,13 +95,37 @@ class LLMBridge(ABC):
 
         try:
             data = json.loads(json_str)
-        except json.JSONDecodeError:
-            # Fallback: treat entire response as a Slack message
-            return LLMResponse(
-                slack_message=raw,
-                file_updates={},
-                raw=raw,
-            )
+        except json.JSONDecodeError as e:
+            print(f"[parser] JSON parse failed: {e}")
+            print(f"[parser] First 200 chars: {json_str[:200]}")
+            print(f"[parser] Last 200 chars: {json_str[-200:]}")
+
+            # Try fixing common issues: unescaped newlines in strings
+            try:
+                # Sometimes LLM outputs literal newlines inside JSON strings
+                # Try to fix by finding the JSON object boundaries
+                brace_count = 0
+                json_end = -1
+                for i, ch in enumerate(json_str):
+                    if ch == '{':
+                        brace_count += 1
+                    elif ch == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            json_end = i + 1
+                            break
+                if json_end > 0:
+                    data = json.loads(json_str[:json_end])
+                else:
+                    raise
+            except (json.JSONDecodeError, Exception):
+                # Final fallback: treat entire response as a Slack message
+                print(f"[parser] All parse attempts failed, using raw text as message")
+                return LLMResponse(
+                    slack_message=raw,
+                    file_updates={},
+                    raw=raw,
+                )
 
         # Extract messages
         messages = data.get("messages", [])
