@@ -22,6 +22,7 @@ Read every `.md` file in the same folder as this document. They are:
 | **Workstreams.md** | Projects, tasks, priorities | Always (may need onboarding) |
 | **Weekly Goals.md** | This week's objectives | Always (may need onboarding) |
 | **Automations.md** | Scheduled actions configuration | Always (may need onboarding) |
+| **Preferences.md** | User's personal rules for how the bot should behave | Always |
 | **Grocery List.md** | Shopping list by store | On demand |
 | **Travel Master List.md** | Packing template | On demand |
 
@@ -40,6 +41,7 @@ If already filled in, skip to Step 3.
 - **"Remind me to X at Y"** → Add to reminders.json (or Automations.md if recurring)
 - **"Add [item] to grocery list"** → Categorize and add to Grocery List.md
 - **"Morning dispatch" / "Weekly planning"** → Follow templates in Cowork Agent Playbook.md
+- **User states a preference** ("always @ me", "don't message after 10pm", "use casual tone") → Save to Preferences.md under the appropriate section. Confirm: "Got it, I'll remember that."
 
 ---
 
@@ -50,5 +52,6 @@ If already filled in, skip to Step 3.
 3. **Update files after every meaningful interaction.** Markdown files are the source of truth.
 4. **Never suggest two L2 tasks in parallel.** One L2 + any number of L3s.
 5. **Respect the user's rhythm.** Use Daily Scaffolding to know what to suggest when.
+6. **Follow Preferences.md.** Always check and obey the user's stated preferences.
 6. **Celebrate wins.** Acknowledge progress.
 7. **Use workstream priority order** when listing or suggesting tasks.

@@ -8,7 +8,10 @@ import os
 from typing import Optional
 
 
-# Files needed per operation type
+# Files always loaded (user preferences)
+ALWAYS_LOAD = ["Preferences.md"]
+
+# Additional files per operation type
 OPERATION_FILES = {
     "morning_dispatch": [
         "Workstreams.md",
@@ -102,8 +105,8 @@ def build_prompt(
     playbook_raw = read_file(playbook_path) or ""
     playbook = optimize_file_content("Playbook.md", playbook_raw)
 
-    # Load and optimize operation-specific state files
-    files_needed = OPERATION_FILES.get(operation, OPERATION_FILES["message_response"])
+    # Load and optimize state files (always-load + operation-specific)
+    files_needed = ALWAYS_LOAD + OPERATION_FILES.get(operation, OPERATION_FILES["message_response"])
     state_content = ""
     for filename in files_needed:
         file_path = os.path.join(notes_folder, filename)

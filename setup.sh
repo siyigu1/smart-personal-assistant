@@ -784,6 +784,38 @@ generate_files() {
 
     echo ""
     print_success "Framework files in: $NOTES_FOLDER"
+
+    # Copy framework files for family member too
+    if [[ "$ENABLE_FAMILY" == true && -n "$FAMILY_NOTES_FOLDER" ]]; then
+        echo ""
+        echo -e "  ${BOLD}Family: $FAMILY_NAME${NC}"
+        mkdir -p "$FAMILY_NOTES_FOLDER"
+
+        for f in "$framework_src"/*.md; do
+            local basename
+            basename=$(basename "$f")
+            if [[ ! -f "$FAMILY_NOTES_FOLDER/$basename" ]]; then
+                cp "$f" "$FAMILY_NOTES_FOLDER/$basename"
+                print_success "$basename"
+            else
+                print_warning "$basename $MSG_ALREADY_EXISTS"
+            fi
+        done
+
+        if [[ ! -f "$FAMILY_NOTES_FOLDER/reminders.json" ]]; then
+            echo "[]" > "$FAMILY_NOTES_FOLDER/reminders.json"
+            print_success "reminders.json"
+        fi
+
+        # Create cross-tasks.json if needed
+        local cross_path="$(dirname "$NOTES_FOLDER")/cross-tasks.json"
+        if [[ ! -f "$cross_path" ]]; then
+            echo '{"pending":[],"completed":[],"rejected":[]}' > "$cross_path"
+            print_success "cross-tasks.json"
+        fi
+
+        print_success "Family files in: $FAMILY_NOTES_FOLDER"
+    fi
 }
 
 # ─── Install Dependencies ──────────────────────────────────────
