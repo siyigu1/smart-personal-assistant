@@ -119,6 +119,22 @@ def build_prompt(
     if conversation_history:
         prompt += f"\n--- Conversation So Far ---\n{conversation_history}\n"
 
+    # Load short-term memory if it exists (strip internal timestamps)
+    stm_path = os.path.join(notes_folder, ".short-term-memory.json")
+    if os.path.exists(stm_path):
+        try:
+            import json as _json
+            with open(stm_path) as f:
+                stm_raw = _json.load(f)
+            # Extract just the values, hide the TTL metadata
+            stm_clean = {k: v["value"] if isinstance(v, dict) and "value" in v else v
+                         for k, v in stm_raw.items()}
+            if stm_clean:
+                stm_text = _json.dumps(stm_clean, indent=2, ensure_ascii=False)
+                prompt += f"\n--- Your Short-Term Memory (from previous messages) ---\n{stm_text}\nUse this to maintain context. Update it in your response's short_term_memory field if needed.\n"
+        except (ValueError, OSError):
+            pass
+
     if operation == "automation":
         prompt += f"""
 ---
@@ -234,13 +250,17 @@ RESPOND WITH ONLY THIS JSON (no other text):
     "Workstreams": "Complete new content for the entire Workstreams.md file",
     "Daily Scaffolding": "Complete new content for Daily Scaffolding.md"
   },
+  "short_term_memory": {
+    "key": "value — any info you need to remember across messages but that does not belong in the user's files"
+  },
   "onboarding_complete": false
 }
 ```
 
 Rules:
 - "messages": array of strings to post to the chat channel (usually just one)
-- "files": object mapping filename (without .md) to complete new file content. Only include files that changed. Omit if no files need updating.
+- "files": object mapping filename (without .md) to complete new file content. Only include files that changed. Omit or set to {} if no files need updating.
+- "short_term_memory": object for tracking temporary context across messages — things like partial answers, clarifications needed, conversation state. This is NOT saved to the user's files. It is fed back to you on the next message. Use it to avoid re-asking questions. Omit or set to {} if nothing to remember.
 - "onboarding_complete": set to true ONLY when you have gathered all the user's information and are writing their files for the first time
 - File content must be the COMPLETE file, not a diff or partial update
 

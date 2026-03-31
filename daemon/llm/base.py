@@ -9,6 +9,8 @@ class LLMResponse:
     """Parsed response from an LLM invocation."""
     slack_message: str
     file_updates: dict[str, str] = field(default_factory=dict)
+    short_term_memory: dict = field(default_factory=dict)
+    onboarding_complete: bool = False
     raw: str = ""
 
 
@@ -106,12 +108,18 @@ class LLMBridge(ABC):
             filename = key if key.endswith(".md") else f"{key}.md"
             file_updates[filename] = content
 
+        # Extract short-term memory
+        short_term_memory = data.get("short_term_memory", {})
+
         # Check onboarding_complete flag
-        if data.get("onboarding_complete"):
+        onboarding_complete = bool(data.get("onboarding_complete", False))
+        if onboarding_complete:
             slack_message += "\nONBOARDING_COMPLETE"
 
         return LLMResponse(
             slack_message=slack_message,
             file_updates=file_updates,
+            short_term_memory=short_term_memory,
+            onboarding_complete=onboarding_complete,
             raw=raw,
         )

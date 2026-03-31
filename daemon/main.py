@@ -195,6 +195,33 @@ def run_operation(
         updated = apply_updates(response, config.notes_folder)
         print(f"[daemon] Applied {updated} file update(s)")
 
+    # Save short-term memory with timestamps for TTL
+    if response.short_term_memory:
+        import json as _json
+        stm_path = os.path.join(config.notes_folder, ".short-term-memory.json")
+
+        # Load existing, merge new entries with timestamps
+        existing = {}
+        if os.path.exists(stm_path):
+            try:
+                with open(stm_path) as f:
+                    existing = _json.load(f)
+            except (ValueError, OSError):
+                pass
+
+        now = time.time()
+        for key, value in response.short_term_memory.items():
+            existing[key] = {"value": value, "ts": now}
+
+        # Prune entries older than 24 hours
+        cutoff = now - 86400
+        existing = {k: v for k, v in existing.items()
+                    if isinstance(v, dict) and v.get("ts", 0) > cutoff}
+
+        with open(stm_path, "w") as f:
+            _json.dump(existing, f, indent=2, ensure_ascii=False)
+        print(f"[daemon] Short-term memory: {len(existing)} entries")
+
     # Log the call
     if activity:
         activity.llm_call(
