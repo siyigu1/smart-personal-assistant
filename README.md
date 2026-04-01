@@ -81,6 +81,26 @@ Plugins extend the assistant with domain-specific features. Each plugin is a fol
 
 ### Creating Your Own Plugin
 
+**The easiest way:** Just tell your AI what you want to track.
+
+```
+You: "I want to track my workouts and fitness goals"
+Bot: "I'll create a fitness plugin for you. Here's what it will do:
+      - Track workouts (type, duration, notes)
+      - Set weekly fitness goals
+      - Show progress summaries
+      I've added it to your Preferences and created the playbook.
+      Try saying 'log a 30min run today'."
+```
+
+The AI creates the `playbook.md`, adds routing to your `Preferences.md`, and creates the data file — all from a conversation. No manual file editing needed.
+
+**For daemon users:** The plugin files are written automatically via the JSON response.
+
+**For framework-only users:** The AI generates the playbook content and tells you where to save it.
+
+**Manual creation** (if you prefer):
+
 Create a folder at `plugins/my_plugin/` with a `playbook.md`:
 ```markdown
 # My Plugin

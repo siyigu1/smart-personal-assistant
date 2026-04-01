@@ -67,10 +67,13 @@ Plugins extend the assistant with additional features. Each plugin has a `playbo
 2. Include routing rules — trigger phrases that should activate this plugin
 3. Confirm: "Got it, grocery plugin is now active. Try saying 'add milk to grocery list'."
 
-**When a user says "add a new plugin" or describes a new feature:**
-1. Understand what they want to track
-2. Create a routing entry in Preferences.md
-3. On the daemon side, create a `playbook.md` in plugins/[name]/ (return via files)
+**When a user says "add a new plugin" or describes a new feature they want to track:**
+1. Understand what they want to track — ask clarifying questions if needed
+2. Generate a `playbook.md` for the new plugin with: Installation section (routing rules), behavior rules, and data file format
+3. Add the routing rules to Preferences.md (from the Installation section you just wrote)
+4. Create the initial data file in `plugins/[name]/`
+5. Return the playbook via the `files` field: `"plugins/[name]/playbook.md": "content..."` (daemon saves it) or tell the user to save it (framework-only mode)
+6. Confirm: "I've created a [name] plugin. Try saying '[example trigger]'."
 
 Available plugin data files are listed in your context. Request via `need_more_context` (e.g., `"plugins/grocery/my_grocery.md"`).
 
