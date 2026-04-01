@@ -1031,6 +1031,14 @@ setup_daemon_service() {
 setup_launchd() {
     local plist_dir="$HOME/Library/LaunchAgents"
     local plist_file="$plist_dir/com.mission-control.daemon.plist"
+    local venv_python="$SCRIPT_DIR/.venv/bin/python3"
+
+    # Verify venv exists
+    if [[ ! -f "$venv_python" ]]; then
+        print_error "Virtual environment not found at $venv_python"
+        echo "    Run install_deps first or use ./run.sh (it creates the venv automatically)"
+        return
+    fi
 
     mkdir -p "$plist_dir"
 
@@ -1073,9 +1081,26 @@ PLIST
     launchctl unload "$plist_file" 2>/dev/null || true
     launchctl load "$plist_file" 2>/dev/null || true
 
-    print_success "launchd service created and started"
+    # Wait and verify it actually started
+    sleep 2
+    if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
+        # Check if it exited immediately (exit code != 0 means crash)
+        local exit_code
+        exit_code=$(launchctl list 2>/dev/null | grep "com.mission-control.daemon" | awk '{print $1}')
+        if [[ "$exit_code" == "-" || "$exit_code" == "0" ]]; then
+            print_success "launchd service running"
+        else
+            print_error "Daemon started but crashed (exit code: $exit_code)"
+            echo "    Check errors: cat ~/.mission-control.err"
+            tail -5 "$HOME/.mission-control.err" 2>/dev/null || true
+        fi
+    else
+        print_error "Daemon failed to start"
+        echo "    Check errors: cat ~/.mission-control.err"
+        tail -5 "$HOME/.mission-control.err" 2>/dev/null || true
+    fi
     echo "    Logs: $HOME/.mission-control.log"
-    echo "    Stop: launchctl stop com.mission-control.daemon"
+    echo "    Errors: $HOME/.mission-control.err"
 }
 
 setup_systemd() {
