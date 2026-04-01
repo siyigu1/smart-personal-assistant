@@ -485,7 +485,9 @@ def _run_polling(config, users, llm, activity, args):
         user_index += 1
         last_cycle = now
 
-        print(f"[cycle] {user.user_name} ({user.slack_channel_name})")
+        print(f"[cycle] {user.user_name} ({user.slack_channel_name}) "
+              f"onboarding={needs_onboarding(user.notes_folder)} "
+              f"conv_active={user.conversation.is_active()}")
 
         # 1. Check for new messages
         new_msg = user.channel.check_for_new_message()
