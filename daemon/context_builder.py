@@ -125,6 +125,14 @@ def build_prompt(
     files_needed = list(ALWAYS_ATTACH) + OPERATION_FILES.get(operation, OPERATION_FILES["message_response"])
     if extra_files:
         for ef in extra_files:
+            # Special keyword: "automations" returns compact summary
+            if ef.lower() == "automations":
+                from .automations import get_automation_summary
+                if data_dir:
+                    summary = get_automation_summary(data_dir)
+                    if summary:
+                        state_content += f"\n\n--- Automations (compact) ---\n{summary}"
+                continue
             fname = ef if ef.endswith(".md") else f"{ef}.md"
             if fname not in files_needed:
                 files_needed.append(fname)
@@ -302,8 +310,10 @@ RESPOND WITH ONLY THIS JSON (no other text):
 
 Rules:
 - "messages": array of strings to post to chat. Usually one. Use Slack *bold* formatting.
-- "files": filename (no .md) → complete file content. ONLY include files that changed. Omit if none.
-- "files.automations": if you need to update automations, set this to an ARRAY of automation objects (not a string). Each object has: time, when, action, name, and action-specific fields (prompt for llm, text for message).
+- "files": filename (no .md) → complete file content. ONLY include files that changed. Omit if none. Do NOT put automations here.
+- "add_automations": array of new automation objects to add. Each has: time, when, action, name, and action-specific fields (prompt for llm, text for message). The daemon assigns IDs automatically.
+- "update_automations": array of objects with "id" plus fields to change. Only include changed fields.
+- "remove_automations": array of automation ID strings to remove.
 - "short_term_memory": temp context to remember across messages (partial answers, clarifications, state). NOT saved to user files. Fed back to you next call. Use to avoid re-asking. Omit if empty.
 - "need_more_context": array of file names you need to see to answer properly. Daemon will re-call you with those files. Only use when you truly can't answer without them. Omit if not needed.
 - "onboarding_complete": true ONLY when you've gathered everything and are writing files

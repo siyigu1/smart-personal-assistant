@@ -1,8 +1,10 @@
 """Apply file updates from LLM responses.
 
-Handles the 'files' dict from LLM JSON output. Most keys map to
-markdown files in the user's notes folder. The special 'automations'
-key (when it's an array) is routed to the automations system.
+Handles the 'files' dict from LLM JSON output. Keys map to
+markdown files in the user's notes folder.
+
+Automations are handled separately via add/update/remove_automations
+in the automations module — not through file_updater.
 """
 
 import os
@@ -13,6 +15,8 @@ from .llm.base import LLMResponse
 def apply_updates(response: LLMResponse, notes_folder: str, data_dir: str = "") -> int:
     """Apply file updates from an LLM response.
 
+    Also applies automation mutations (add/update/remove) if present.
+
     Args:
         response: Parsed LLM response containing file_updates dict.
         notes_folder: Base path for resolving relative file paths.
@@ -21,21 +25,25 @@ def apply_updates(response: LLMResponse, notes_folder: str, data_dir: str = "") 
     Returns:
         Number of files updated.
     """
-    if not response.file_updates:
-        return 0
-
     updated = 0
-    for path, content in response.file_updates.items():
-        # Special handling: automations as array → write both JSON and MD
-        if path == "automations" and isinstance(content, list):
-            if data_dir:
-                from .automations import write_automations
-                write_automations(data_dir, notes_folder, content)
-                updated += 1
-            else:
-                print("[file_updater] Skipping automations: no data_dir provided")
-            continue
 
+    # Handle automation mutations
+    if data_dir:
+        from .automations import add_automations, update_automations, remove_automations
+        if response.add_automations:
+            add_automations(data_dir, notes_folder, response.add_automations)
+            updated += 1
+        if response.update_automations:
+            update_automations(data_dir, notes_folder, response.update_automations)
+            updated += 1
+        if response.remove_automations:
+            remove_automations(data_dir, notes_folder, response.remove_automations)
+            updated += 1
+
+    if not response.file_updates:
+        return updated
+
+    for path, content in response.file_updates.items():
         # Resolve relative paths against notes folder
         if not os.path.isabs(path):
             path = os.path.join(notes_folder, path)

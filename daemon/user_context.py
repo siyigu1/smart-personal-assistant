@@ -15,7 +15,6 @@ from typing import Optional
 from .channels.base import ChannelClient
 from .channels.slack import SlackChannel
 from .conversation import Conversation
-from .reminder_engine import ReminderEngine
 from .cross_tasks import CrossTaskChecker
 from .config import Config
 
@@ -40,7 +39,6 @@ class UserContext:
     slack_channel_name: str
     channel: ChannelClient
     conversation: Conversation
-    reminders: ReminderEngine
     cross_tasks: Optional[CrossTaskChecker] = None
 
 
@@ -87,7 +85,6 @@ def create_user_contexts(config: Config) -> list[UserContext]:
         slack_channel_name=config.slack_channel_name,
         channel=primary_channel,
         conversation=Conversation(primary_data_dir),
-        reminders=ReminderEngine(primary_data_dir),
         cross_tasks=primary_cross,
     ))
 
@@ -129,7 +126,6 @@ def create_user_contexts(config: Config) -> list[UserContext]:
             slack_channel_name=f"#{config.family_name.lower()}-cowork",
             channel=family_channel,
             conversation=Conversation(family_data_dir),
-            reminders=ReminderEngine(family_data_dir),
             cross_tasks=family_cross,
         ))
 

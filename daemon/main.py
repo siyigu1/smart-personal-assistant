@@ -1,7 +1,7 @@
 """Personal Assistant Daemon — main entry point.
 
 Lightweight Python daemon that handles deterministic work (polling,
-reminders, scheduling) and invokes the LLM only when intelligence
+automations, scheduling) and invokes the LLM only when intelligence
 is needed.
 
 Supports two modes:
@@ -15,10 +15,12 @@ import time
 import signal
 import asyncio
 import argparse
+import threading
 from datetime import datetime
 from typing import Optional
 
 from .config import load_config, Config
+from .i18n import t
 from .llm.claude_cli import ClaudeCLI
 from .llm.base import LLMBridge
 from .automations import check_and_run as check_automations
@@ -67,18 +69,21 @@ def create_llm(config: Config, channel) -> LLMBridge:
 # Tracks which error types have been notified to avoid spamming Slack
 _notified_errors: set = set()
 
+# Per-user lock to prevent simultaneous LLM calls for the same user
+# (e.g., Socket Mode handler + scheduled loop both firing at once)
+_user_locks: dict[str, threading.Lock] = {}
 
-_ERROR_MESSAGES = {
-    "en": {
-        "auth_required": "Claude CLI needs you to log in again. Go to your computer and run: claude login",
-        "update_required": "Claude CLI has an update available. Go to your computer and run: claude update",
-        "prefix": "Action needed",
-    },
-    "zh": {
-        "auth_required": "Claude CLI 需要你重新登录。请到电脑上运行：claude login",
-        "update_required": "Claude CLI 有更新。请到电脑上运行：claude update",
-        "prefix": "需要你操作",
-    },
+
+def _get_user_lock(user_name: str) -> threading.Lock:
+    """Get or create a per-user threading lock."""
+    if user_name not in _user_locks:
+        _user_locks[user_name] = threading.Lock()
+    return _user_locks[user_name]
+
+
+_ERROR_KEY_MAP = {
+    "auth_required": "error_auth",
+    "update_required": "error_update",
 }
 
 
@@ -88,17 +93,17 @@ def _llm_error_notifier(channel, config):
         if error_type.value in _notified_errors:
             return
         _notified_errors.add(error_type.value)
-        lang = config.language if config.language in _ERROR_MESSAGES else "en"
-        msgs = _ERROR_MESSAGES[lang]
-        prefix = msgs["prefix"]
-        if message_key in msgs:
-            detail = msgs[message_key]
+        lang = config.language
+        prefix = t("error_prefix", lang)
+        i18n_key = _ERROR_KEY_MAP.get(message_key)
+        if i18n_key:
+            detail = t(i18n_key, lang)
         elif message_key.startswith("unknown:"):
             code = message_key.split(":")[1]
-            detail = f"Claude CLI error (exit code {code})" if lang == "en" else f"Claude CLI 错误（退出码 {code}）"
+            detail = t("error_unknown_code", lang, code=code)
         else:
             detail = message_key
-        channel.post(f"⚠️ *{prefix}:* {detail}")
+        channel.post(f"\u26a0\ufe0f *{prefix}:* {detail}")
     return on_error
 
 
@@ -108,18 +113,8 @@ def notify_llm_failure(channel, operation: str, config=None, activity=None):
     if key in _notified_errors:
         return
     _notified_errors.add(key)
-    if config and config.language == "zh":
-        channel.post(
-            f"⚠️ 尝试运行 *{operation}* 但没有收到 AI 的回复。"
-            f"可能是临时问题——我会继续尝试。"
-            f"如果持续出现，请运行 `./status.sh errors` 查看详情。"
-        )
-    else:
-        channel.post(
-            f"⚠️ I tried to run *{operation}* but didn't get a response from the AI. "
-            f"This might be a temporary issue — I'll keep trying. "
-            f"If it persists, check `./status.sh errors` for details."
-        )
+    lang = config.language if config else "en"
+    channel.post(t("error_llm_failure", lang, operation=operation))
     if activity:
         activity.llm_error(operation, "Empty response from LLM")
 
@@ -137,7 +132,26 @@ def run_operation(
 
     This is the only function that invokes the LLM. Everything else
     in the daemon is pure code. Supports Turn 2 via need_more_context.
+
+    Acquires a per-user lock to prevent simultaneous LLM calls for
+    the same user (e.g., Socket Mode handler + scheduled loop).
     """
+    lock = _get_user_lock(user.user_name)
+    with lock:
+        _run_operation_locked(llm, user, config, operation,
+                              user_message, activity, conversation_history)
+
+
+def _run_operation_locked(
+    llm: LLMBridge,
+    user: UserContext,
+    config: Config,
+    operation: str,
+    user_message: str = "",
+    activity: Optional[ActivityLog] = None,
+    conversation_history: str = "",
+):
+    """Internal: run an LLM operation while holding the user lock."""
     channel = user.channel
 
     # Build Slack history context for operations that need it
@@ -295,19 +309,11 @@ def main():
             activity.log("onboarding", f"Starting onboarding for {user.user_name}")
             user.conversation.start("onboarding")
 
-            if user.language == "zh":
-                welcome = (
-                    f"你好 {user.user_name}！我是{user.assistant_name}。"
-                    f"让我们来设置你的系统吧——我会问几个关于你的日程和项目的问题，大概 15 分钟。\n\n"
-                    f"准备好了吗？（回复'好'或'开始'就行）"
-                )
-            else:
-                welcome = (
-                    f"Hi {user.user_name}! I'm {user.assistant_name}. "
-                    f"Let's set up your system — I'll ask a few questions about "
-                    f"your schedule and projects. Takes about 15 minutes.\n\n"
-                    f"Ready to get started? (just reply 'yes' or 'let's go')"
-                )
+            welcome = t(
+                "welcome_onboarding", user.language,
+                user_name=user.user_name,
+                assistant_name=user.assistant_name,
+            )
             user.channel.post(welcome)
             run_operation(llm, user, config, "onboarding", activity=activity)
 
@@ -342,10 +348,7 @@ def _run_socket_mode(config, users, llm, activity, args):
 
         print(f"[socket] Message from {user.user_name}: {text[:80]}")
 
-        if user.language == "zh":
-            say_fn("收到 — 正在处理")
-        else:
-            say_fn("Got it — working on this now")
+        say_fn(t("ack", user.language))
 
         # Route: active conversation > needs onboarding > normal
         if user.conversation.is_active():
@@ -389,16 +392,11 @@ def _run_socket_mode(config, users, llm, activity, args):
             )
 
     async def scheduled_loop():
-        """Background loop for reminders, automations, cross-tasks."""
+        """Background loop for automations, cross-tasks."""
         while True:
             for user in users:
                 try:
-                    # 1. Fire due reminders
-                    fired = user.reminders.check_and_fire(user.channel)
-                    if fired > 0:
-                        activity.reminder_fired(f"{user.user_name}: {fired} reminder(s)")
-
-                    # 2. Run automations
+                    # 1. Run automations (includes message-type, formerly reminders)
                     auto_count = check_automations(
                         user.data_dir, user.notes_folder,
                         user.channel, llm, config
@@ -408,7 +406,7 @@ def _run_socket_mode(config, users, llm, activity, args):
                             f"{user.user_name}: {auto_count} automation(s)", "mixed"
                         )
 
-                    # 3. Check cross-tasks
+                    # 2. Check cross-tasks
                     if user.cross_tasks:
                         user.cross_tasks.check_and_notify(user.channel)
                 except Exception as e:
@@ -469,21 +467,13 @@ def _run_polling(config, users, llm, activity, args):
 
         print(f"[cycle] {user.user_name} ({user.slack_channel_name})")
 
-        # 1. Fire due reminders (pure code, zero tokens)
-        fired = user.reminders.check_and_fire(user.channel)
-        if fired > 0:
-            activity.reminder_fired(f"{user.user_name}: {fired} reminder(s)")
-
-        # 2. Check for new messages
+        # 1. Check for new messages
         new_msg = user.channel.check_for_new_message()
         activity.poll(new_msg is not None,
                      f"{user.user_name}: {new_msg.text}" if new_msg else user.user_name)
 
         if new_msg:
-            if user.language == "zh":
-                user.channel.post("收到 — 正在处理")
-            else:
-                user.channel.post("Got it — working on this now")
+            user.channel.post(t("ack", user.language))
 
             # Route: active conversation > needs onboarding > normal
             if user.conversation.is_active():
@@ -529,7 +519,7 @@ def _run_polling(config, users, llm, activity, args):
                     user_message=new_msg.text, activity=activity,
                 )
 
-        # 3. Run automations from this user's data dir
+        # 2. Run automations from this user's data dir (includes message-type, formerly reminders)
         auto_count = check_automations(
             user.data_dir, user.notes_folder,
             user.channel, llm, config
@@ -537,7 +527,7 @@ def _run_polling(config, users, llm, activity, args):
         if auto_count > 0:
             activity.automation_fired(f"{user.user_name}: {auto_count} automation(s)", "mixed")
 
-        # 4. Check cross-tasks
+        # 3. Check cross-tasks
         if user.cross_tasks:
             user.cross_tasks.check_and_notify(user.channel)
 

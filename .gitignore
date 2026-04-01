@@ -61,6 +61,5 @@ logs/
 # OS
 Thumbs.db
 Desktop.ini
-docs/siyi-setup-instructions.md
-docs/architecture-v2.md
+docs/
 .claude/worktrees/

@@ -1,18 +1,26 @@
 """Read and execute automations from automations.json.
 
+Automations are the unified system for all scheduled actions, including
+what was previously called "reminders" (now automations with action: "message").
+
 Reads strict JSON from data/{user}/automations.json and fires actions
 when the current time matches. Supports three action types:
-- 'message': post directly to channel (zero tokens)
+- 'message': post directly to channel (zero tokens) — replaces reminders
 - 'cached': post from a pre-generated cache file (zero tokens)
 - 'llm': send prompt to LLM, post response to channel
 
 The daemon is the writer and reader of automations.json.
 It also renders Automations.md in the user's Obsidian folder
 as a human-readable view.
+
+Incremental mutation functions (add/update/remove) let the LLM
+modify automations without rewriting the entire list.
 """
 
+import hashlib
 import os
 import json
+import re
 import time
 from datetime import datetime, date
 from typing import Optional
@@ -20,6 +28,32 @@ from typing import Optional
 
 # Tolerance window: action fires if within this many seconds of scheduled time
 FIRE_WINDOW_SECONDS = 300  # 5 minutes
+
+
+def _generate_id(name: str, time_str: str = "") -> str:
+    """Generate a 4-char hex ID from name + time."""
+    data = f"{name}|{time_str}|{time.time()}"
+    return hashlib.sha256(data.encode()).hexdigest()[:4]
+
+
+def _ensure_ids(automations: list[dict]) -> list[dict]:
+    """Ensure every automation has a unique 'id' field."""
+    existing_ids = {a.get("id") for a in automations if a.get("id")}
+    for auto in automations:
+        if not auto.get("id"):
+            new_id = _generate_id(auto.get("name", ""), auto.get("time", ""))
+            while new_id in existing_ids:
+                new_id = hashlib.sha256(
+                    f"{new_id}{time.time()}".encode()
+                ).hexdigest()[:4]
+            auto["id"] = new_id
+            existing_ids.add(new_id)
+    return automations
+
+
+def _is_one_time_date(date_str: str) -> bool:
+    """Check if a date string is a one-time date (YYYY-MM-DD format)."""
+    return bool(re.match(r'^\d{4}-\d{2}-\d{2}$', date_str))
 
 
 def should_fire(auto: dict, now: Optional[datetime] = None) -> bool:
@@ -75,6 +109,13 @@ def load_automations(data_dir: str) -> list[dict]:
         return []
 
 
+def _save_automations(data_dir: str, automations: list[dict]) -> None:
+    """Save automations list to automations.json."""
+    json_path = os.path.join(data_dir, "automations.json")
+    with open(json_path, "w") as f:
+        json.dump(automations, f, indent=2, ensure_ascii=False)
+
+
 def load_fired_today(data_dir: str) -> dict:
     """Load the set of automations that already fired today."""
     path = os.path.join(data_dir, "automations-fired.json")
@@ -98,7 +139,7 @@ def mark_fired(data_dir: str, auto: dict) -> None:
     data = load_fired_today(data_dir)
     data["date"] = date.today().isoformat()
 
-    key = f"{auto.get('time', '')}|{auto.get('name', '')}"
+    key = auto.get("id") or f"{auto.get('time', '')}|{auto.get('name', '')}"
     if key not in data["fired"]:
         data["fired"].append(key)
 
@@ -107,18 +148,154 @@ def mark_fired(data_dir: str, auto: dict) -> None:
         json.dump(data, f)
 
 
+# ── Incremental mutation functions ────────────────────────────────
+
+
+def add_automations(data_dir: str, notes_folder: str, new_items: list[dict]) -> int:
+    """Add new automations to the existing list.
+
+    Each new item gets a daemon-assigned 4-char hex ID.
+
+    Returns:
+        Number of automations added.
+    """
+    automations = load_automations(data_dir)
+    new_items = _ensure_ids(new_items)
+    automations.extend(new_items)
+    _save_automations(data_dir, automations)
+    render_automations_md(notes_folder, automations)
+    print(f"[automations] Added {len(new_items)} automation(s)")
+    return len(new_items)
+
+
+def update_automations(data_dir: str, notes_folder: str, updates: list[dict]) -> int:
+    """Update existing automations by ID.
+
+    Each dict in updates must have an 'id' field. All other fields
+    are merged into the existing automation.
+
+    Returns:
+        Number of automations updated.
+    """
+    automations = load_automations(data_dir)
+    by_id = {a["id"]: a for a in automations if "id" in a}
+    count = 0
+
+    for upd in updates:
+        aid = upd.get("id")
+        if aid and aid in by_id:
+            by_id[aid].update(upd)
+            count += 1
+        else:
+            print(f"[automations] Update skipped — id '{aid}' not found")
+
+    if count > 0:
+        _save_automations(data_dir, automations)
+        render_automations_md(notes_folder, automations)
+        print(f"[automations] Updated {count} automation(s)")
+    return count
+
+
+def remove_automations(data_dir: str, notes_folder: str, ids: list[str]) -> int:
+    """Remove automations by ID.
+
+    Returns:
+        Number of automations removed.
+    """
+    automations = load_automations(data_dir)
+    ids_set = set(ids)
+    before = len(automations)
+    automations = [a for a in automations if a.get("id") not in ids_set]
+    removed = before - len(automations)
+
+    if removed > 0:
+        _save_automations(data_dir, automations)
+        render_automations_md(notes_folder, automations)
+        print(f"[automations] Removed {removed} automation(s)")
+    return removed
+
+
+def cleanup_one_time(data_dir: str, notes_folder: str) -> int:
+    """Remove one-time automations (YYYY-MM-DD dates) that have already fired.
+
+    Called after firing. Entries whose 'when.dates' contains only past
+    YYYY-MM-DD dates (and no recurring 'days') are removed.
+
+    Returns:
+        Number of automations cleaned up.
+    """
+    automations = load_automations(data_dir)
+    today = date.today().isoformat()
+    keep = []
+    removed = 0
+
+    for auto in automations:
+        when = auto.get("when", {})
+        days = when.get("days", [])
+        dates = when.get("dates", [])
+
+        # Keep if it has recurring days
+        if days:
+            keep.append(auto)
+            continue
+
+        # Check if all dates are one-time and in the past
+        one_time_dates = [d for d in dates if _is_one_time_date(d)]
+        recurring_dates = [d for d in dates if not _is_one_time_date(d)]
+
+        if one_time_dates and not recurring_dates:
+            # All dates are one-time; remove if all are past
+            if all(d <= today for d in one_time_dates):
+                removed += 1
+                continue
+
+        keep.append(auto)
+
+    if removed > 0:
+        _save_automations(data_dir, keep)
+        render_automations_md(notes_folder, keep)
+        print(f"[automations] Cleaned up {removed} expired one-time automation(s)")
+
+    return removed
+
+
+def get_automation_summary(data_dir: str) -> str:
+    """Return a compact summary of all automations.
+
+    Format: id:Name@HH:MM/day1,day2,day3
+    Example: a3f2:Morning Dispatch@08:00/mon,tue,wed,thu,fri
+    """
+    automations = load_automations(data_dir)
+    automations = _ensure_ids(automations)
+    lines = []
+    for auto in automations:
+        aid = auto.get("id", "????")
+        name = auto.get("name", "unnamed")
+        time_str = auto.get("time", "??:??")
+        when = auto.get("when", {})
+        schedule_parts = []
+        if "days" in when:
+            schedule_parts.append(",".join(when["days"]))
+        if "dates" in when:
+            schedule_parts.append(",".join(when["dates"]))
+        schedule = "/".join(schedule_parts) if schedule_parts else "none"
+        lines.append(f"{aid}:{name}@{time_str}/{schedule}")
+    return "\n".join(lines)
+
+
 def write_automations(data_dir: str, notes_folder: str, automations: list[dict]) -> None:
     """Write automations to both JSON (for daemon) and Markdown (for user).
+
+    This is the full-replace version. Prefer add/update/remove for
+    incremental changes.
 
     Args:
         data_dir: Path to data/{user_id}/ for automations.json
         notes_folder: Path to user's Obsidian folder for Automations.md
         automations: List of automation dicts from LLM response
     """
-    # Write JSON (daemon's source of truth)
-    json_path = os.path.join(data_dir, "automations.json")
-    with open(json_path, "w") as f:
-        json.dump(automations, f, indent=2, ensure_ascii=False)
+    automations = _ensure_ids(automations)
+    _save_automations(data_dir, automations)
     print(f"[automations] Wrote {len(automations)} automation(s) to automations.json")
 
     # Render Markdown (human-readable view in Obsidian)
@@ -132,11 +309,12 @@ def render_automations_md(notes_folder: str, automations: list[dict]) -> None:
         "",
         "_This file is auto-generated by the daemon. Edit automations by telling the bot._",
         "",
-        "| Time | Schedule | Type | Name | Details |",
-        "|------|----------|------|------|---------|",
+        "| ID | Time | Schedule | Type | Name | Details |",
+        "|----|------|----------|------|------|---------|",
     ]
 
     for auto in automations:
+        aid = auto.get("id", "")
         time_str = auto.get("time", "")
         when = auto.get("when", {})
         action = auto.get("action", "")
@@ -164,7 +342,7 @@ def render_automations_md(notes_folder: str, automations: list[dict]) -> None:
         details = details.replace("|", "\\|").replace("\n", " ")
         name = name.replace("|", "\\|")
 
-        lines.append(f"| {time_str} | {schedule} | {action} | {name} | {details} |")
+        lines.append(f"| {aid} | {time_str} | {schedule} | {action} | {name} | {details} |")
 
     md_path = os.path.join(notes_folder, "Automations.md")
     with open(md_path, "w") as f:
@@ -197,7 +375,7 @@ def check_and_run(data_dir: str, notes_folder: str, channel, llm, config) -> int
     count = 0
 
     for auto in automations:
-        key = f"{auto.get('time', '')}|{auto.get('name', '')}"
+        key = auto.get("id") or f"{auto.get('time', '')}|{auto.get('name', '')}"
 
         # Skip if already fired today
         if key in fired_data.get("fired", []):
@@ -245,5 +423,9 @@ def check_and_run(data_dir: str, notes_folder: str, channel, llm, config) -> int
 
         mark_fired(data_dir, auto)
         count += 1
+
+    # Auto-cleanup: remove expired one-time entries after firing
+    if count > 0:
+        cleanup_one_time(data_dir, notes_folder)
 
     return count

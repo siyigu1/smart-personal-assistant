@@ -750,10 +750,10 @@ generate_files() {
     mkdir -p "$NOTES_FOLDER"
     mkdir -p "$NOTES_FOLDER/reference"
 
-    # Use Chinese framework files if language is zh
-    local framework_src="$SCRIPT_DIR/framework"
-    if [[ "$LANG_CODE" == "zh" && -d "$SCRIPT_DIR/framework/zh" ]]; then
-        framework_src="$SCRIPT_DIR/framework/zh"
+    # Use language-specific framework directory
+    local framework_src="$SCRIPT_DIR/framework/$LANG_CODE"
+    if [[ ! -d "$framework_src" ]]; then
+        framework_src="$SCRIPT_DIR/framework/en"
     fi
 
     # Baseline files go to reference/ (always overwritable)
@@ -795,15 +795,6 @@ generate_files() {
     if [[ -f "$framework_src/Travel Master List.md" && ! -f "$NOTES_FOLDER/Travel Master List.md" ]]; then
         cp "$framework_src/Travel Master List.md" "$NOTES_FOLDER/Travel Master List.md"
         print_success "Travel Master List.md"
-    fi
-
-    # System prompt (always regenerated with current settings)
-    local prompt_tpl="$SCRIPT_DIR/templates/prompts/$LANG_CODE"
-    if [[ -d "$prompt_tpl" ]]; then
-        mkdir -p "$NOTES_FOLDER/skills/mission-control"
-        cp "$prompt_tpl/system-prompt.md.tpl" "$NOTES_FOLDER/skills/mission-control/SKILL.md"
-        apply_substitutions "$NOTES_FOLDER/skills/mission-control/SKILL.md"
-        print_success "skills/mission-control/SKILL.md (updated)"
     fi
 
     echo ""
@@ -888,20 +879,8 @@ create_cowork_tasks() {
     if [[ "$SETUP_MODE" != "cowork" ]]; then return; fi
 
     print_step "Creating Scheduled Tasks"
-
-    local tasks_dir="$HOME/.claude/scheduled-tasks"
-    local tpl_dir="$SCRIPT_DIR/cowork/scheduled"
-
-    for tpl in "$tpl_dir"/*.tpl; do
-        local task_name
-        task_name=$(basename "$tpl" .tpl)
-        local task_dir="$tasks_dir/$task_name"
-
-        mkdir -p "$task_dir"
-        cp "$tpl" "$task_dir/SKILL.md"
-        apply_substitutions "$task_dir/SKILL.md"
-        print_success "$task_name"
-    done
+    echo "  Cowork mode scheduled tasks are no longer supported."
+    echo "  Please use Daemon mode instead."
 }
 
 # ─── Save Config ───────────────────────────────────────────────

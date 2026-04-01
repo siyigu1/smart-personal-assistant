@@ -8,6 +8,7 @@ import json
 import os
 
 from .channels.base import ChannelClient
+from .i18n import t
 
 
 class CrossTaskChecker:
@@ -40,16 +41,10 @@ class CrossTaskChecker:
                     and not task.get("notified", False)):
                 from_name = task.get("from", "Someone")
                 description = task.get("task", "a task")
-                if self.language == "zh":
-                    channel.post(
-                        f"{from_name} 给你分配了任务：{description}\n"
-                        f"回复'接受'或'拒绝'"
-                    )
-                else:
-                    channel.post(
-                        f"{from_name} assigned you: {description}\n"
-                        f"Reply 'accept' or 'reject'"
-                    )
+                channel.post(t(
+                    "cross_task_assigned", self.language,
+                    from_name=from_name, description=description,
+                ))
                 task["notified"] = True
                 notified += 1
 

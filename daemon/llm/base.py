@@ -8,10 +8,13 @@ from dataclasses import dataclass, field
 class LLMResponse:
     """Parsed response from an LLM invocation."""
     slack_message: str
-    file_updates: dict = field(default_factory=dict)  # str→str or "automations"→list
+    file_updates: dict = field(default_factory=dict)  # str→str (markdown files only)
     short_term_memory: dict = field(default_factory=dict)
     need_more_context: list = field(default_factory=list)
     onboarding_complete: bool = False
+    add_automations: list = field(default_factory=list)
+    update_automations: list = field(default_factory=list)
+    remove_automations: list = field(default_factory=list)
     raw: str = ""
 
 
@@ -136,9 +139,8 @@ class LLMBridge(ABC):
         files = data.get("files", {})
         file_updates = {}
         for key, content in files.items():
-            # Special: "automations" as array → keep as-is for daemon processing
-            if key.lower() == "automations" and isinstance(content, list):
-                file_updates["automations"] = content
+            # Skip automations in files — use add/update/remove instead
+            if key.lower() == "automations":
                 continue
             # Normalize: "Workstreams" → "Workstreams.md"
             filename = key if key.endswith(".md") else f"{key}.md"
@@ -152,6 +154,17 @@ class LLMBridge(ABC):
         if isinstance(need_more_context, str):
             need_more_context = [need_more_context]
 
+        # Extract automation mutations
+        add_automations = data.get("add_automations", [])
+        if not isinstance(add_automations, list):
+            add_automations = []
+        update_automations = data.get("update_automations", [])
+        if not isinstance(update_automations, list):
+            update_automations = []
+        remove_automations = data.get("remove_automations", [])
+        if not isinstance(remove_automations, list):
+            remove_automations = []
+
         # Check onboarding_complete flag
         onboarding_complete = bool(data.get("onboarding_complete", False))
         if onboarding_complete:
@@ -163,5 +176,8 @@ class LLMBridge(ABC):
             short_term_memory=short_term_memory,
             need_more_context=need_more_context,
             onboarding_complete=onboarding_complete,
+            add_automations=add_automations,
+            update_automations=update_automations,
+            remove_automations=remove_automations,
             raw=raw,
         )
