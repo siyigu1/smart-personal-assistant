@@ -225,12 +225,11 @@ load_existing_config() {
 
     # Load family settings
     local family_val
-    family_val=$(python3 -c "import json; print(json.load(open('$cfg')).get('family', False))" 2>/dev/null || echo "False")
-    if [[ "$family_val" == "True" ]]; then
+    FAMILY_NAME=$(json_val "family_name" "$cfg")
+    FAMILY_CHANNEL_ID=$(json_val "family_channel_id" "$cfg")
+    FAMILY_NOTES_FOLDER=$(json_val "family_notes_folder" "$cfg")
+    if [[ -n "$FAMILY_NAME" && -n "$FAMILY_CHANNEL_ID" ]]; then
         ENABLE_FAMILY=true
-        FAMILY_NAME=$(json_val "family_name" "$cfg")
-        FAMILY_CHANNEL_ID=$(json_val "family_channel_id" "$cfg")
-        FAMILY_NOTES_FOLDER=$(json_val "family_notes_folder" "$cfg")
         FAMILY_CHANNEL_NAME="#$(echo "$FAMILY_NAME" | tr "[:upper:]" "[:lower:]")-cowork"
     fi
 
