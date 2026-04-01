@@ -524,12 +524,29 @@ test_slack_connection() {
     if [[ "$SETUP_MODE" != "daemon" ]]; then return; fi
     if [[ -z "$SLACK_BOT_TOKEN" ]]; then return; fi
 
+    # Test primary user
+    _test_slack_for_user "$USER_NAME" "$SLACK_BOT_TOKEN" "$SLACK_CHANNEL_ID" "$SLACK_CHANNEL_NAME"
+
+    # Test family member if configured
+    if [[ "$ENABLE_FAMILY" == true && -n "$FAMILY_CHANNEL_ID" ]]; then
+        echo ""
+        echo -e "  ${BOLD}Testing family: $FAMILY_NAME${NC}"
+        _test_slack_for_user "$FAMILY_NAME" "$SLACK_BOT_TOKEN" "$FAMILY_CHANNEL_ID" "$FAMILY_CHANNEL_NAME"
+    fi
+}
+
+_test_slack_for_user() {
+    local test_user="$1"
+    local test_token="$2"
+    local test_channel_id="$3"
+    local test_channel_name="$4"
+
     local PYTHON="$SCRIPT_DIR/.venv/bin/python3"
     if [[ ! -f "$PYTHON" ]]; then
         PYTHON="python3"
     fi
 
-    print_step "$MSG_SLACK_TEST"
+    print_step "$MSG_SLACK_TEST — $test_user ($test_channel_name)"
 
     # Test 1: Send a message
     echo -e "  ${BOLD}Test 1: Send message to Slack${NC}"
