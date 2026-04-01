@@ -1019,49 +1019,93 @@ setup_daemon_service() {
 
     print_step "$MSG_DAEMON_TITLE"
 
-    echo "    1. Background service (auto-starts on boot)"
-    echo "    2. $MSG_DAEMON_MANUAL"
-    echo ""
-
-    ask_default "Choice:" "1" daemon_choice
-
-    if [[ "$daemon_choice" == "1" ]]; then
-        if [[ "$(uname)" == "Darwin" ]]; then
-            setup_launchd
-        else
-            setup_systemd
+    # Check if a daemon is already running
+    local daemon_running=false
+    if [[ "$(uname)" == "Darwin" ]]; then
+        if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
+            daemon_running=true
         fi
-
-        # Verify the daemon is running
-        echo ""
-        echo "  $MSG_DAEMON_VERIFY"
-        sleep 2
-
-        if [[ "$(uname)" == "Darwin" ]]; then
-            if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
-                print_success "$MSG_DAEMON_RUNNING"
-            else
-                print_warning "Daemon may not have started. Check logs:"
-                echo "    cat $HOME/.mission-control.log"
-                echo "    cat $HOME/.mission-control.err"
-            fi
-        else
-            if systemctl --user is-active mission-control &>/dev/null; then
-                print_success "$MSG_DAEMON_RUNNING"
-            else
-                print_warning "Daemon may not have started. Check:"
-                echo "    systemctl --user status mission-control"
-            fi
-        fi
-
     else
+        if systemctl --user is-active mission-control &>/dev/null; then
+            daemon_running=true
+        fi
+    fi
+
+    if [[ "$daemon_running" == true ]]; then
+        print_warning "$MSG_DAEMON_ALREADY_RUNNING"
         echo ""
-        echo "  $MSG_DAEMON_MANUAL_START"
-        echo "    cd $SCRIPT_DIR"
-        echo "    ./run.sh"
+        echo "  $MSG_DAEMON_RESTART_PROMPT"
+        echo "    1. $MSG_DAEMON_RESTART_OPT1"
+        echo "    2. $MSG_DAEMON_RESTART_OPT2"
         echo ""
-        echo "  $MSG_DAEMON_MANUAL_VERIFY"
-        echo "    ./run.sh --once    (runs one cycle and exits)"
+        ask_default "Choice:" "1" restart_choice
+
+        # Stop the existing daemon
+        echo ""
+        echo "  $MSG_DAEMON_STOPPING"
+        if [[ "$(uname)" == "Darwin" ]]; then
+            launchctl unload "$HOME/Library/LaunchAgents/com.mission-control.daemon.plist" 2>/dev/null || true
+        else
+            systemctl --user stop mission-control 2>/dev/null || true
+        fi
+        print_success "$MSG_DAEMON_STOPPED"
+
+        if [[ "$restart_choice" == "2" ]]; then
+            echo ""
+            echo "  $MSG_DAEMON_MANUAL_REMINDER"
+            echo "    cd $SCRIPT_DIR"
+            echo "    ./run.sh"
+            return
+        fi
+
+        echo ""
+        echo "  $MSG_DAEMON_RESTARTING"
+    else
+        echo "    1. Background service (auto-starts on boot)"
+        echo "    2. $MSG_DAEMON_MANUAL"
+        echo ""
+
+        ask_default "Choice:" "1" daemon_choice
+
+        if [[ "$daemon_choice" != "1" ]]; then
+            echo ""
+            echo "  $MSG_DAEMON_MANUAL_START"
+            echo "    cd $SCRIPT_DIR"
+            echo "    ./run.sh"
+            echo ""
+            echo "  $MSG_DAEMON_MANUAL_VERIFY"
+            echo "    ./run.sh --once    (runs one cycle and exits)"
+            return
+        fi
+    fi
+
+    # Install and start the daemon service
+    if [[ "$(uname)" == "Darwin" ]]; then
+        setup_launchd
+    else
+        setup_systemd
+    fi
+
+    # Verify the daemon is running
+    echo ""
+    echo "  $MSG_DAEMON_VERIFY"
+    sleep 2
+
+    if [[ "$(uname)" == "Darwin" ]]; then
+        if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
+            print_success "$MSG_DAEMON_RUNNING"
+        else
+            print_warning "Daemon may not have started. Check logs:"
+            echo "    cat $HOME/.mission-control.log"
+            echo "    cat $HOME/.mission-control.err"
+        fi
+    else
+        if systemctl --user is-active mission-control &>/dev/null; then
+            print_success "$MSG_DAEMON_RUNNING"
+        else
+            print_warning "Daemon may not have started. Check:"
+            echo "    systemctl --user status mission-control"
+        fi
     fi
 }
 
@@ -1114,6 +1158,37 @@ setup_launchd() {
 </dict>
 </plist>
 PLIST
+
+    # Check if notes folder is in iCloud — if so, test that the venv Python can access it
+    if [[ "$NOTES_FOLDER" == *"Mobile Documents"* ]]; then
+        if ! "$venv_python" -c "open('$NOTES_FOLDER/.mc-config.json')" 2>/dev/null; then
+            echo ""
+            print_warning "$MSG_DAEMON_FDA_TITLE"
+            echo ""
+            echo "  $MSG_DAEMON_FDA_EXPLAIN"
+            echo ""
+            echo "  $MSG_DAEMON_FDA_STEPS"
+            echo "  $MSG_DAEMON_FDA_STEP1"
+            echo "  $MSG_DAEMON_FDA_STEP2"
+            echo "    $venv_python"
+            echo "  $MSG_DAEMON_FDA_STEP3"
+            echo ""
+            echo "  $MSG_DAEMON_FDA_SKIP"
+            echo ""
+            echo "  $MSG_DAEMON_FDA_OPEN"
+            open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+            read -r -p "  Press Enter after granting access (or to skip)... "
+            echo ""
+
+            # Re-test after user action
+            if "$venv_python" -c "open('$NOTES_FOLDER/.mc-config.json')" 2>/dev/null; then
+                print_success "Full Disk Access confirmed"
+            else
+                print_warning "Python still cannot access iCloud files. The daemon may not work as a background service."
+                echo "    You can still run it manually: ./run.sh"
+            fi
+        fi
+    fi
 
     launchctl unload "$plist_file" 2>/dev/null || true
     launchctl load "$plist_file" 2>/dev/null || true
