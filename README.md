@@ -226,6 +226,14 @@ The AI messages you in Slack to learn about your schedule and projects. Answer c
 
 **After setup:**
 ```bash
+# Start / Stop
+./run.sh                 # Start daemon (foreground)
+launchctl stop com.mission-control.daemon   # Stop (macOS background)
+launchctl start com.mission-control.daemon  # Start (macOS background)
+systemctl --user stop mission-control       # Stop (Linux background)
+systemctl --user start mission-control      # Start (Linux background)
+
+# Monitor
 ./status.sh              # Check daemon status + recent activity
 ./status.sh activity     # Recent activity log
 ./status.sh llm          # Recent AI calls
