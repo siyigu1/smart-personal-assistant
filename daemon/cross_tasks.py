@@ -8,7 +8,7 @@ import json
 import os
 
 from .channels.base import ChannelClient
-from ._i18n import t
+from .i18n import t
 
 
 class CrossTaskChecker:

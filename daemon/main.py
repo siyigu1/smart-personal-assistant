@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Optional
 
 from .config import load_config, Config
-from ._i18n import t
+from .i18n import t
 from .llm.claude_cli import ClaudeCLI
 from .llm.base import LLMBridge
 from .automations import check_and_run as check_automations

@@ -1,0 +1,10 @@
+{
+  "ack": "Got it — working on this now",
+  "welcome_onboarding": "Hi {user_name}! I'm {assistant_name}. Let's set up your system — I'll ask a few questions about your schedule and projects. Takes about 15 minutes.\n\nReady to get started? (just reply 'yes' or 'let's go')",
+  "error_auth": "Claude CLI needs you to log in again. Go to your computer and run: claude login",
+  "error_update": "Claude CLI has an update available. Go to your computer and run: claude update",
+  "error_prefix": "Action needed",
+  "error_unknown_code": "Claude CLI error (exit code {code})",
+  "error_llm_failure": "⚠️ I tried to run *{operation}* but didn't get a response from the AI. This might be a temporary issue — I'll keep trying. If it persists, check `./status.sh errors` for details.",
+  "cross_task_assigned": "{from_name} assigned you: {description}\nReply 'accept' or 'reject'"
+}

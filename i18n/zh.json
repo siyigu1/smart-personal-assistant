@@ -1,0 +1,10 @@
+{
+  "ack": "收到 — 正在处理",
+  "welcome_onboarding": "你好 {user_name}！我是{assistant_name}。让我们来设置你的系统吧——我会问几个关于你的日程和项目的问题，大概 15 分钟。\n\n准备好了吗？（回复'好'或'开始'就行）",
+  "error_auth": "Claude CLI 需要你重新登录。请到电脑上运行：claude login",
+  "error_update": "Claude CLI 有更新。请到电脑上运行：claude update",
+  "error_prefix": "需要你操作",
+  "error_unknown_code": "Claude CLI 错误（退出码 {code}）",
+  "error_llm_failure": "⚠️ 尝试运行 *{operation}* 但没有收到 AI 的回复。可能是临时问题——我会继续尝试。如果持续出现，请运行 `./status.sh errors` 查看详情。",
+  "cross_task_assigned": "{from_name} 给你分配了任务：{description}\n回复'接受'或'拒绝'"
+}
