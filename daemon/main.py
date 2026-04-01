@@ -172,6 +172,7 @@ def _run_operation_locked(
         slack_history=slack_history,
         conversation_history=conversation_history,
         data_dir=user.data_dir,
+        lang=user.language,
     )
 
     # Invoke the LLM
@@ -203,6 +204,7 @@ def _run_operation_locked(
             conversation_history=conversation_history,
             data_dir=user.data_dir,
             extra_files=response.need_more_context,
+            lang=user.language,
         )
         raw_response2 = llm.invoke(prompt2)
         if raw_response2:

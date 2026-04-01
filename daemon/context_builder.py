@@ -65,9 +65,56 @@ AVAILABLE_CONTEXT_FILES = [
     "Daily Scaffolding.md",
     "Getting Started.md",
     "Automations.md",
-    "Grocery List.md",
-    "Travel Master List.md",
 ]
+
+
+def _discover_plugins(repo_dir: str, lang: str = "en") -> dict[str, str]:
+    """Discover plugins and return {name: playbook_content}.
+
+    Looks for plugins in plugins/{lang}/ first, then falls back to
+    plugins/ root for user-created plugins that aren't translated yet.
+    """
+    plugins = {}
+    plugins_base = os.path.join(repo_dir, "plugins")
+
+    # Language-specific plugins (translated)
+    lang_dir = os.path.join(plugins_base, lang)
+    if os.path.isdir(lang_dir):
+        for entry in os.listdir(lang_dir):
+            playbook = os.path.join(lang_dir, entry, "playbook.md")
+            if os.path.isfile(playbook):
+                content = read_file(playbook)
+                if content:
+                    plugins[entry] = content
+
+    # User-created plugins at plugins/ root (not translated)
+    if os.path.isdir(plugins_base):
+        for entry in os.listdir(plugins_base):
+            if entry in ("en", "zh", "README.md") or entry in plugins:
+                continue
+            playbook = os.path.join(plugins_base, entry, "playbook.md")
+            if os.path.isfile(playbook):
+                content = read_file(playbook)
+                if content:
+                    plugins[entry] = content
+
+    return plugins
+
+
+def _discover_plugin_user_files(notes_folder: str) -> list[str]:
+    """Find all plugin data files in the user's plugins/ folder."""
+    files = []
+    plugins_dir = os.path.join(notes_folder, "plugins")
+    if not os.path.isdir(plugins_dir):
+        return files
+    for plugin_name in os.listdir(plugins_dir):
+        plugin_dir = os.path.join(plugins_dir, plugin_name)
+        if not os.path.isdir(plugin_dir):
+            continue
+        for f in os.listdir(plugin_dir):
+            if f.endswith(".md"):
+                files.append(f"plugins/{plugin_name}/{f}")
+    return files
 
 
 def read_file(path: str) -> Optional[str]:
@@ -86,6 +133,7 @@ def build_prompt(
     conversation_history: str = "",
     data_dir: str = "",
     extra_files: Optional[list[str]] = None,
+    lang: str = "en",
 ) -> str:
     """Build a complete prompt for an LLM invocation.
 
@@ -134,6 +182,18 @@ def build_prompt(
                     if summary:
                         state_content += f"\n\n--- Automations (compact) ---\n{summary}"
                 continue
+            # Plugin playbook request: "plugin:grocery"
+            if ef.startswith("plugin:"):
+                plugin_name = ef.split(":", 1)[1]
+                if plugin_name in plugins:
+                    optimized = optimize_file_content(f"plugin:{plugin_name}", plugins[plugin_name])
+                    if optimized:
+                        state_content += f"\n\n--- Plugin: {plugin_name} ---\n{optimized}"
+                continue
+            # Plugin user file: "plugins/grocery/my_grocery.md"
+            if ef.startswith("plugins/"):
+                # Handled below in plugin section
+                continue
             fname = ef if ef.endswith(".md") else f"{ef}.md"
             if fname not in files_needed:
                 files_needed.append(fname)
@@ -150,6 +210,43 @@ def build_prompt(
             if optimized:
                 state_content += f"\n\n--- {filename} ---\n{optimized}"
 
+    # Discover plugins
+    repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    plugins = _discover_plugins(repo_dir, lang=lang)
+    plugin_user_files = _discover_plugin_user_files(notes_folder)
+
+    # Build compact plugin summary (names + first line of playbook)
+    plugin_summary = ""
+    if plugins:
+        plugin_lines = []
+        for name, content in plugins.items():
+            first_line = content.split("\n")[0].strip("# ").strip()
+            plugin_lines.append(f"- {name}: {first_line}")
+        plugin_summary = "\n".join(plugin_lines)
+
+    # Load plugin user data files if requested via extra_files
+    # or if the operation is message_response (user might reference a plugin)
+    if extra_files:
+        for ef in list(extra_files):
+            # Check if it's a plugin file reference like "plugins/grocery/my_grocery.md"
+            if ef.startswith("plugins/"):
+                plugin_path = os.path.join(notes_folder, ef)
+                content = read_file(plugin_path)
+                if content:
+                    optimized = optimize_file_content(ef, content)
+                    if optimized:
+                        state_content += f"\n\n--- {ef} ---\n{optimized}"
+
+    # Load plugin playbooks that are relevant to the user's message
+    # For message_response: include all plugin playbooks (they're small)
+    # For scheduled ops: skip plugins
+    plugin_content = ""
+    if operation in ("message_response", "onboarding") and plugins:
+        for name, content in plugins.items():
+            optimized = optimize_file_content(f"plugin:{name}", content)
+            if optimized:
+                plugin_content += f"\n\n--- Plugin: {name} ---\n{optimized}"
+
     # Build the full prompt
     prompt = f"""{system_prompt}
 
@@ -159,6 +256,17 @@ def build_prompt(
 --- State Files ---
 {state_content}
 """
+
+    if plugin_content:
+        prompt += f"\n--- Plugins ---{plugin_content}\n"
+    elif plugin_summary:
+        prompt += f"\n--- Available Plugins ---\n{plugin_summary}\nRequest plugin details via need_more_context: [\"plugin:grocery\"].\n"
+
+    # List available plugin user files
+    if plugin_user_files:
+        prompt += f"\n--- Plugin Data Files (request via need_more_context) ---\n"
+        for pf in plugin_user_files:
+            prompt += f"- {pf}\n"
 
     if slack_history:
         prompt += f"\n--- Recent Slack ---\n{slack_history}\n"
