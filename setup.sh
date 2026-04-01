@@ -517,18 +517,26 @@ MANIFEST
 
     echo ""
     print_success "$MSG_SLACK_DONE"
-
-    # Test connection
-    test_slack_connection
+    # Slack test runs after install_deps (needs venv with slack-sdk)
 }
 
 test_slack_connection() {
-    echo ""
-    if confirm "$MSG_SLACK_TEST"; then
-        while true; do
-            echo "  $MSG_SLACK_TEST_SENDING"
-            local test_result
-            test_result=$("$SCRIPT_DIR/.venv/bin/python3" -c "
+    if [[ "$SETUP_MODE" != "daemon" ]]; then return; fi
+    if [[ -z "$SLACK_BOT_TOKEN" ]]; then return; fi
+
+    local PYTHON="$SCRIPT_DIR/.venv/bin/python3"
+    if [[ ! -f "$PYTHON" ]]; then
+        PYTHON="python3"
+    fi
+
+    print_step "$MSG_SLACK_TEST"
+
+    # Test 1: Send a message
+    echo -e "  ${BOLD}Test 1: Send message to Slack${NC}"
+    while true; do
+        echo "  $MSG_SLACK_TEST_SENDING"
+        local test_result
+        test_result=$("$PYTHON" -c "
 from slack_sdk import WebClient
 client = WebClient(token='$SLACK_BOT_TOKEN')
 try:
@@ -536,42 +544,83 @@ try:
     print('ok')
 except Exception as e:
     print(f'error: {e}')
-" 2>&1 || echo "error: python/venv not ready")
+" 2>&1 || echo "error: slack-sdk not available")
 
-            if [[ "$test_result" == "ok" ]]; then
-                print_success "$MSG_SLACK_TEST_OK"
+        if [[ "$test_result" == "ok" ]]; then
+            print_success "$MSG_SLACK_TEST_OK"
+            break
+        else
+            print_error "$MSG_SLACK_TEST_FAIL"
+            echo "    $test_result"
+            echo ""
+            echo -e "  ${BOLD}$MSG_SLACK_TEST_DEBUG${NC}"
+            echo "    $MSG_SLACK_TEST_DEBUG1"
+            echo "    $MSG_SLACK_TEST_DEBUG2"
+            echo "    $MSG_SLACK_TEST_DEBUG3"
+            echo "    $MSG_SLACK_TEST_DEBUG4"
+            echo "    $MSG_SLACK_TEST_DEBUG5"
+            echo ""
+            if ! confirm "$MSG_SLACK_TEST_RETRY"; then
                 break
-            else
-                print_error "$MSG_SLACK_TEST_FAIL"
-                echo "    $test_result"
-                echo ""
-                echo -e "  ${BOLD}$MSG_SLACK_TEST_DEBUG${NC}"
-                echo "    $MSG_SLACK_TEST_DEBUG1"
-                echo "    $MSG_SLACK_TEST_DEBUG2"
-                echo "    $MSG_SLACK_TEST_DEBUG3"
-                echo "    $MSG_SLACK_TEST_DEBUG4"
-                echo "    $MSG_SLACK_TEST_DEBUG5"
-                echo ""
-                if ! confirm "$MSG_SLACK_TEST_RETRY"; then
-                    break
-                fi
-
-                # Re-collect credentials
-                echo ""
-                echo -e "  ${BOLD}$MSG_SLACK_PASTE${NC}"
-                echo -e "  ${DIM}(${SLACK_BOT_TOKEN:0:10}...${SLACK_BOT_TOKEN: -4})${NC}"
-                ask_default "$MSG_SLACK_PASTE" "$SLACK_BOT_TOKEN" SLACK_BOT_TOKEN
-
-                echo ""
-                echo -e "  ${DIM}($SLACK_CHANNEL_ID)${NC}"
-                ask_default "$MSG_SLACK_CHANNEL_ID" "$SLACK_CHANNEL_ID" SLACK_CHANNEL_ID
-
-                echo ""
-                echo -e "  ${DIM}($SLACK_CHANNEL_NAME)${NC}"
-                ask_default "$MSG_SLACK_CHANNEL_NAME" "$SLACK_CHANNEL_NAME" SLACK_CHANNEL_NAME
             fi
-        done
+
+            # Re-collect credentials
+            echo ""
+            ask_default "$MSG_SLACK_PASTE" "$SLACK_BOT_TOKEN" SLACK_BOT_TOKEN
+            ask_default "$MSG_SLACK_CHANNEL_ID" "$SLACK_CHANNEL_ID" SLACK_CHANNEL_ID
+            ask_default "$MSG_SLACK_CHANNEL_NAME" "$SLACK_CHANNEL_NAME" SLACK_CHANNEL_NAME
+        fi
+    done
+
+    # Test 2: Read messages (verify bot can read the channel)
+    echo ""
+    echo -e "  ${BOLD}Test 2: Read channel messages${NC}"
+    local read_result
+    read_result=$("$PYTHON" -c "
+from slack_sdk import WebClient
+client = WebClient(token='$SLACK_BOT_TOKEN')
+try:
+    result = client.conversations_history(channel='$SLACK_CHANNEL_ID', limit=1)
+    msgs = result.get('messages', [])
+    print(f'ok:{len(msgs)}')
+except Exception as e:
+    print(f'error: {e}')
+" 2>&1 || echo "error: failed")
+
+    if [[ "$read_result" == ok:* ]]; then
+        print_success "Can read channel messages"
+    else
+        print_warning "Cannot read channel: $read_result"
+        echo "    Check: channels:history scope added? Bot invited to channel?"
     fi
+
+    # Test 3: AI round-trip (if claude CLI available)
+    if command -v claude &>/dev/null; then
+        echo ""
+        echo -e "  ${BOLD}Test 3: AI round-trip${NC}"
+        echo "  Sending test prompt to AI..."
+        local ai_result
+        ai_result=$(echo 'Respond with exactly: {"messages":["Hello from AI test!"]}' | claude -p --tools "" --output-format text 2>&1 | head -5)
+
+        if echo "$ai_result" | grep -q "Hello"; then
+            print_success "AI responded successfully"
+        elif echo "$ai_result" | grep -qi "auth\|login\|401\|unauthorized"; then
+            print_error "AI authentication failed"
+            echo "    Run: claude login"
+            echo "    Then re-run ./setup.sh"
+        elif echo "$ai_result" | grep -qi "update"; then
+            print_warning "AI CLI may need an update"
+            echo "    Run: claude update"
+        else
+            print_warning "AI response unexpected: ${ai_result:0:100}"
+            echo "    This may still work — try ./run.sh --once to verify"
+        fi
+    else
+        echo ""
+        print_warning "Skipping AI test — claude CLI not found"
+    fi
+
+    echo ""
 }
 
 setup_slack_cowork() {
@@ -1131,6 +1180,7 @@ main() {
     collect_family
     generate_files
     install_deps
+    test_slack_connection
     create_cowork_tasks
     save_config
     restart_if_running
