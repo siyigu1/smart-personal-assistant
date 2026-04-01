@@ -231,7 +231,7 @@ load_existing_config() {
         FAMILY_NAME=$(json_val "family_name" "$cfg")
         FAMILY_CHANNEL_ID=$(json_val "family_channel_id" "$cfg")
         FAMILY_NOTES_FOLDER=$(json_val "family_notes_folder" "$cfg")
-        FAMILY_CHANNEL_NAME="#${FAMILY_NAME,,}-cowork"
+        FAMILY_CHANNEL_NAME="#$(echo "$FAMILY_NAME" | tr "[:upper:]" "[:lower:]")-cowork"
     fi
 
     echo "    Name:      $USER_NAME"
@@ -771,7 +771,7 @@ collect_family() {
         ask "$MSG_FAMILY_NAME" FAMILY_NAME
     fi
     ask_default "$MSG_FAMILY_CHANNEL" "${FAMILY_CHANNEL_ID:-}" FAMILY_CHANNEL_ID
-    ask_default "Their channel name:" "${FAMILY_CHANNEL_NAME:-#${FAMILY_NAME,,}-cowork}" FAMILY_CHANNEL_NAME
+    ask_default "Their channel name:" "${FAMILY_CHANNEL_NAME:-#$(echo "$FAMILY_NAME" | tr "[:upper:]" "[:lower:]")-cowork}" FAMILY_CHANNEL_NAME
     ask_default "Their notes folder:" "${FAMILY_NOTES_FOLDER:-$(dirname "$NOTES_FOLDER")/Personal Assistant - $FAMILY_NAME}" FAMILY_NOTES_FOLDER
 
     print_success "Family: $FAMILY_NAME at $FAMILY_CHANNEL_NAME"
