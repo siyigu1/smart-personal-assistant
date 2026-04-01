@@ -26,10 +26,12 @@ class Config:
     user_name: str = "User"
     assistant_name: str = "Personal Assistant"
     slack_bot_token: str = ""
+    slack_app_token: str = ""
     slack_channel_id: str = ""
     slack_channel_name: str = ""
     timezone: str = "America/New_York"
     notes_folder: str = ""
+    data_dir: str = ""  # Daemon internal data (data/{user_id}/)
     language: str = "en"
     llm_provider: str = "claude-cli"
     channel_provider: str = "slack"
@@ -149,14 +151,23 @@ def load_config(config_path: Optional[str] = None) -> Config:
         family=features_data.get("family", False),
     )
 
+    # Compute data_dir: repo/data/ directory for daemon internals
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(config_path)))
+    # If config is in the notes folder, repo_dir won't be right — use script dir
+    daemon_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_dir = os.path.dirname(daemon_dir)
+    data_dir = os.path.join(repo_dir, "data")
+
     config = Config(
         user_name=data.get("user_name", "User"),
         assistant_name=data.get("assistant_name", "Personal Assistant"),
         slack_bot_token=os.environ.get("SLACK_BOT_TOKEN", ""),
+        slack_app_token=os.environ.get("SLACK_APP_TOKEN", ""),
         slack_channel_id=data.get("slack_channel_id", ""),
         slack_channel_name=data.get("slack_channel_name", ""),
         timezone=data.get("timezone", "America/New_York"),
         notes_folder=data.get("notes_folder", ""),
+        data_dir=data_dir,
         language=data.get("language", "en"),
         llm_provider=data.get("llm_provider", "claude-cli"),
         channel_provider=data.get("channel_provider", "slack"),

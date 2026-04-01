@@ -8,10 +8,10 @@ import os
 from typing import Optional
 
 
-# Files always loaded (user preferences)
-ALWAYS_LOAD = ["Preferences.md"]
+# Files always attached to every LLM call
+ALWAYS_ATTACH = ["Preferences.md"]
 
-# Additional files per operation type
+# Per-operation file requirements (lean sets)
 OPERATION_FILES = {
     "morning_dispatch": [
         "Workstreams.md",
@@ -40,8 +40,6 @@ OPERATION_FILES = {
         "Workstreams.md",
         "Weekly Goals.md",
         "Daily Scaffolding.md",
-        "Cognitive Levels.md",
-        "Priority Framework.md",
     ],
     "onboarding": [
         "Getting Started.md",
@@ -54,10 +52,21 @@ OPERATION_FILES = {
         "Workstreams.md",
         "Weekly Goals.md",
         "Daily Scaffolding.md",
-        "Cognitive Levels.md",
-        "Priority Framework.md",
     ],
 }
+
+# All files that can be requested via need_more_context
+AVAILABLE_CONTEXT_FILES = [
+    "Cognitive Levels.md",
+    "Priority Framework.md",
+    "Workstreams.md",
+    "Weekly Goals.md",
+    "Daily Scaffolding.md",
+    "Getting Started.md",
+    "Automations.md",
+    "Grocery List.md",
+    "Travel Master List.md",
+]
 
 
 def read_file(path: str) -> Optional[str]:
@@ -74,6 +83,8 @@ def build_prompt(
     user_message: str = "",
     slack_history: str = "",
     conversation_history: str = "",
+    data_dir: str = "",
+    extra_files: Optional[list[str]] = None,
 ) -> str:
     """Build a complete prompt for an LLM invocation.
 
@@ -83,6 +94,8 @@ def build_prompt(
         user_message: The user's message (for message_response operations).
         slack_history: Recent Slack conversation history (for context).
         conversation_history: Full multi-turn conversation history (for onboarding, etc.).
+        data_dir: Path to daemon data directory for this user (for STM, etc.)
+        extra_files: Additional files to load (from need_more_context).
 
     Returns:
         A complete prompt string with system instructions and all
@@ -96,20 +109,32 @@ def build_prompt(
 
     # Load and optimize system prompt
     start_here = os.path.join(notes_folder, "START HERE.md")
+    # Also check reference/ subfolder
+    start_here_ref = os.path.join(notes_folder, "reference", "START HERE.md")
     skill_path = os.path.join(notes_folder, "skills", "mission-control", "SKILL.md")
-    system_prompt = read_file(start_here) or read_file(skill_path) or ""
+    system_prompt = read_file(start_here) or read_file(start_here_ref) or read_file(skill_path) or ""
     system_prompt = optimize_file_content("START HERE.md", system_prompt)
 
     # Load and optimize playbook
     playbook_path = os.path.join(notes_folder, "Cowork Agent Playbook.md")
-    playbook_raw = read_file(playbook_path) or ""
+    playbook_ref = os.path.join(notes_folder, "reference", "Cowork Agent Playbook.md")
+    playbook_raw = read_file(playbook_path) or read_file(playbook_ref) or ""
     playbook = optimize_file_content("Playbook.md", playbook_raw)
 
-    # Load and optimize state files (always-load + operation-specific)
-    files_needed = ALWAYS_LOAD + OPERATION_FILES.get(operation, OPERATION_FILES["message_response"])
+    # Load and optimize state files (always-attach + operation-specific + extra)
+    files_needed = list(ALWAYS_ATTACH) + OPERATION_FILES.get(operation, OPERATION_FILES["message_response"])
+    if extra_files:
+        for ef in extra_files:
+            fname = ef if ef.endswith(".md") else f"{ef}.md"
+            if fname not in files_needed:
+                files_needed.append(fname)
+
     state_content = ""
     for filename in files_needed:
+        # Try notes folder first, then reference/ subfolder
         file_path = os.path.join(notes_folder, filename)
+        if not os.path.exists(file_path):
+            file_path = os.path.join(notes_folder, "reference", filename)
         content = read_file(file_path)
         if content:
             optimized = optimize_file_content(filename, content)
@@ -133,9 +158,14 @@ def build_prompt(
         optimized_history = optimize_conversation_history(conversation_history)
         prompt += f"\n--- Conversation ---\n{optimized_history}\n"
 
-    # Load short-term memory (clean, no timestamps)
-    stm_path = os.path.join(notes_folder, ".short-term-memory.json")
-    if os.path.exists(stm_path):
+    # Load short-term memory from data_dir (clean, no timestamps)
+    stm_path = None
+    if data_dir:
+        stm_path = os.path.join(data_dir, "short-term-memory.json")
+    else:
+        # Fallback to old location for backwards compat
+        stm_path = os.path.join(notes_folder, ".short-term-memory.json")
+    if stm_path and os.path.exists(stm_path):
         try:
             import json as _json
             with open(stm_path) as f:
@@ -265,6 +295,7 @@ RESPOND WITH ONLY THIS JSON (no other text):
   "short_term_memory": {
     "key": "value — any info you need to remember across messages but that does not belong in the user's files"
   },
+  "need_more_context": ["Cognitive Levels", "Priority Framework"],
   "onboarding_complete": false
 }
 ```
@@ -272,7 +303,9 @@ RESPOND WITH ONLY THIS JSON (no other text):
 Rules:
 - "messages": array of strings to post to chat. Usually one. Use Slack *bold* formatting.
 - "files": filename (no .md) → complete file content. ONLY include files that changed. Omit if none.
+- "files.automations": if you need to update automations, set this to an ARRAY of automation objects (not a string). Each object has: time, when, action, name, and action-specific fields (prompt for llm, text for message).
 - "short_term_memory": temp context to remember across messages (partial answers, clarifications, state). NOT saved to user files. Fed back to you next call. Use to avoid re-asking. Omit if empty.
+- "need_more_context": array of file names you need to see to answer properly. Daemon will re-call you with those files. Only use when you truly can't answer without them. Omit if not needed.
 - "onboarding_complete": true ONLY when you've gathered everything and are writing files
 - File content = COMPLETE file, not a diff. Write it exactly as it should appear on disk (proper markdown formatting, headings, blank lines, etc.)
 

@@ -19,6 +19,9 @@
 reminders.json
 cross-tasks.json
 
+# Daemon internal data (per-user state, memory, automations)
+data/
+
 # Generated user files (setup.sh creates these in user's notes folder, not in repo)
 # But if someone accidentally runs setup.sh inside the repo dir:
 # Ignore at root level only, not inside framework/
@@ -60,3 +63,4 @@ Thumbs.db
 Desktop.ini
 docs/siyi-setup-instructions.md
 docs/architecture-v2.md
+.claude/worktrees/

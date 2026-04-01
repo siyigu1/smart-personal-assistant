@@ -3,6 +3,10 @@
 Each user gets their own channel, notes folder, conversation state,
 and short-term memory. The daemon creates one UserContext per user
 and polls them all in the same loop.
+
+Daemon internal files (memory, state, automations) live in
+data/{user_id}/ inside the repo directory, NOT in the user's
+Obsidian folder.
 """
 
 from dataclasses import dataclass
@@ -16,6 +20,12 @@ from .cross_tasks import CrossTaskChecker
 from .config import Config
 
 import os
+import re
+
+
+def _user_id(name: str) -> str:
+    """Convert a user name to a safe directory name."""
+    return re.sub(r'[^a-zA-Z0-9_-]', '-', name).strip('-').lower() or 'default'
 
 
 @dataclass
@@ -25,6 +35,7 @@ class UserContext:
     assistant_name: str
     language: str
     notes_folder: str
+    data_dir: str  # data/{user_id}/ for daemon internals
     slack_channel_id: str
     slack_channel_name: str
     channel: ChannelClient
@@ -44,12 +55,16 @@ def create_user_contexts(config: Config) -> list[UserContext]:
     # Cross-tasks path (shared between all users)
     cross_tasks_path = None
     if config.family_name:
-        cross_tasks_path = os.path.join(
-            os.path.dirname(config.notes_folder), "cross-tasks.json"
-        )
+        cross_tasks_path = os.path.join(config.data_dir, "cross-tasks.json")
 
-    # Primary user
-    primary_state = os.path.join(config.notes_folder, ".mc-state.json")
+    # Primary user data directory
+    primary_user_id = _user_id(config.user_name)
+    primary_data_dir = os.path.join(config.data_dir, primary_user_id)
+    os.makedirs(primary_data_dir, exist_ok=True)
+    os.makedirs(os.path.join(primary_data_dir, "cache"), exist_ok=True)
+
+    # mc-state.json now lives in data dir
+    primary_state = os.path.join(primary_data_dir, "mc-state.json")
     primary_channel = SlackChannel(
         bot_token=config.slack_bot_token,
         channel_id=config.slack_channel_id,
@@ -67,17 +82,23 @@ def create_user_contexts(config: Config) -> list[UserContext]:
         assistant_name=config.assistant_name,
         language=config.language,
         notes_folder=config.notes_folder,
+        data_dir=primary_data_dir,
         slack_channel_id=config.slack_channel_id,
         slack_channel_name=config.slack_channel_name,
         channel=primary_channel,
-        conversation=Conversation(config.notes_folder),
-        reminders=ReminderEngine(config.notes_folder),
+        conversation=Conversation(primary_data_dir),
+        reminders=ReminderEngine(primary_data_dir),
         cross_tasks=primary_cross,
     ))
 
     # Family member (if configured)
     if config.family_name and config.family_channel_id and config.family_notes_folder:
-        family_state = os.path.join(config.family_notes_folder, ".mc-state.json")
+        family_user_id = _user_id(config.family_name)
+        family_data_dir = os.path.join(config.data_dir, family_user_id)
+        os.makedirs(family_data_dir, exist_ok=True)
+        os.makedirs(os.path.join(family_data_dir, "cache"), exist_ok=True)
+
+        family_state = os.path.join(family_data_dir, "mc-state.json")
 
         # Ensure family notes folder exists
         os.makedirs(config.family_notes_folder, exist_ok=True)
@@ -103,11 +124,12 @@ def create_user_contexts(config: Config) -> list[UserContext]:
             assistant_name=family_assistant,
             language=family_lang,
             notes_folder=config.family_notes_folder,
+            data_dir=family_data_dir,
             slack_channel_id=config.family_channel_id,
             slack_channel_name=f"#{config.family_name.lower()}-cowork",
             channel=family_channel,
-            conversation=Conversation(config.family_notes_folder),
-            reminders=ReminderEngine(config.family_notes_folder),
+            conversation=Conversation(family_data_dir),
+            reminders=ReminderEngine(family_data_dir),
             cross_tasks=family_cross,
         ))
 

@@ -3,12 +3,17 @@
 Lightweight Python daemon that handles deterministic work (polling,
 reminders, scheduling) and invokes the LLM only when intelligence
 is needed.
+
+Supports two modes:
+- Socket Mode (preferred): instant message handling via Slack Events API
+- Polling Mode (fallback): checks for new messages every 60 seconds
 """
 
 import os
 import sys
 import time
 import signal
+import asyncio
 import argparse
 from datetime import datetime
 from typing import Optional
@@ -131,7 +136,7 @@ def run_operation(
     """Run an LLM-powered operation and post results.
 
     This is the only function that invokes the LLM. Everything else
-    in the daemon is pure code.
+    in the daemon is pure code. Supports Turn 2 via need_more_context.
     """
     channel = user.channel
 
@@ -151,6 +156,7 @@ def run_operation(
         user_message=user_message,
         slack_history=slack_history,
         conversation_history=conversation_history,
+        data_dir=user.data_dir,
     )
 
     # Invoke the LLM
@@ -170,6 +176,24 @@ def run_operation(
     # Parse structured response
     response = llm.parse_response(raw_response)
 
+    # Handle need_more_context — Turn 2
+    if response.need_more_context and not conversation_history:
+        print(f"[daemon] LLM requests more context: {response.need_more_context}")
+        # Re-invoke with additional files
+        prompt2 = build_prompt(
+            notes_folder=user.notes_folder,
+            operation=operation,
+            user_message=user_message,
+            slack_history=slack_history,
+            conversation_history=conversation_history,
+            data_dir=user.data_dir,
+            extra_files=response.need_more_context,
+        )
+        raw_response2 = llm.invoke(prompt2)
+        if raw_response2:
+            response = llm.parse_response(raw_response2)
+            duration += time.time() - t0
+
     # Post to channel (strip internal markers)
     if response.slack_message:
         clean_msg = response.slack_message.replace("ONBOARDING_COMPLETE", "").strip()
@@ -178,13 +202,13 @@ def run_operation(
 
     # Apply file updates
     if response.file_updates:
-        updated = apply_updates(response, user.notes_folder)
+        updated = apply_updates(response, user.notes_folder, data_dir=user.data_dir)
         print(f"[daemon] Applied {updated} file update(s)")
 
     # Save short-term memory with timestamps for TTL
     if response.short_term_memory:
         import json as _json
-        stm_path = os.path.join(user.notes_folder, ".short-term-memory.json")
+        stm_path = os.path.join(user.data_dir, "short-term-memory.json")
 
         # Load existing, merge new entries with timestamps
         existing = {}
@@ -195,12 +219,12 @@ def run_operation(
             except (ValueError, OSError):
                 pass
 
-        now = time.time()
+        now_ts = time.time()
         for key, value in response.short_term_memory.items():
-            existing[key] = {"value": value, "ts": now}
+            existing[key] = {"value": value, "ts": now_ts}
 
-        # Prune entries older than 24 hours
-        cutoff = now - 86400
+        # Prune entries older than 7 days
+        cutoff = now_ts - 604800  # 7 days
         existing = {k: v for k, v in existing.items()
                     if isinstance(v, dict) and v.get("ts", 0) > cutoff}
 
@@ -216,6 +240,11 @@ def run_operation(
             response_preview=response.slack_message[:200] if response.slack_message else "",
             duration_sec=duration,
         )
+
+
+def _build_channel_user_map(users: list[UserContext]) -> dict[str, UserContext]:
+    """Build a mapping from channel_id to UserContext for Socket Mode routing."""
+    return {u.slack_channel_id: u for u in users}
 
 
 def main():
@@ -246,7 +275,7 @@ def main():
 
     print(f"[daemon] Users: {', '.join(u.user_name for u in users)}")
     for u in users:
-        print(f"[daemon]   {u.user_name}: {u.slack_channel_name} → {u.notes_folder}")
+        print(f"[daemon]   {u.user_name}: {u.slack_channel_name} → notes={u.notes_folder}, data={u.data_dir}")
     print(f"[daemon] LLM: {config.llm_provider}")
 
     activity.startup(
@@ -285,6 +314,125 @@ def main():
             recent = user.channel.get_recent_history(limit=1)
             if recent and recent[0].is_bot:
                 user.conversation.add_assistant_message(recent[0].text)
+
+    # Try Socket Mode, fall back to polling
+    if config.slack_app_token and not args.once:
+        try:
+            _run_socket_mode(config, users, llm, activity, args)
+            return  # Socket Mode ran successfully (blocks until shutdown)
+        except Exception as e:
+            print(f"[daemon] Socket Mode failed ({e}), falling back to polling")
+
+    # Polling mode (fallback or --once)
+    _run_polling(config, users, llm, activity, args)
+
+
+def _run_socket_mode(config, users, llm, activity, args):
+    """Run the daemon in Socket Mode — instant message handling."""
+    from .channels.slack_socket import create_socket_app
+
+    channel_map = _build_channel_user_map(users)
+
+    def handle_message(channel_id: str, text: str, say_fn):
+        """Handle an incoming Slack message from Socket Mode."""
+        user = channel_map.get(channel_id)
+        if not user:
+            print(f"[socket] Message from unknown channel {channel_id}, ignoring")
+            return
+
+        print(f"[socket] Message from {user.user_name}: {text[:80]}")
+
+        if user.language == "zh":
+            say_fn("收到 — 正在处理")
+        else:
+            say_fn("Got it — working on this now")
+
+        # Route: active conversation > needs onboarding > normal
+        if user.conversation.is_active():
+            conv_type = user.conversation.get_type()
+            user.conversation.add_user_message(text)
+            history = user.conversation.get_history_text()
+
+            run_operation(
+                llm, user, config, conv_type,
+                user_message=text,
+                activity=activity,
+                conversation_history=history,
+            )
+
+            recent = user.channel.get_recent_history(limit=1)
+            if recent and recent[0].is_bot:
+                user.conversation.add_assistant_message(recent[0].text)
+                if "ONBOARDING_COMPLETE" in recent[0].text:
+                    if not needs_onboarding(user.notes_folder):
+                        print(f"[daemon] Onboarding complete for {user.user_name}")
+                        user.conversation.end()
+                        activity.log("onboarding", f"{user.user_name}: completed")
+
+        elif needs_onboarding(user.notes_folder):
+            print(f"[daemon] {user.user_name}: resuming onboarding")
+            user.conversation.start("onboarding")
+            user.conversation.add_user_message(text)
+
+            run_operation(
+                llm, user, config, "onboarding",
+                user_message=text, activity=activity,
+            )
+
+            recent = user.channel.get_recent_history(limit=1)
+            if recent and recent[0].is_bot:
+                user.conversation.add_assistant_message(recent[0].text)
+        else:
+            run_operation(
+                llm, user, config, "message_response",
+                user_message=text, activity=activity,
+            )
+
+    async def scheduled_loop():
+        """Background loop for reminders, automations, cross-tasks."""
+        while True:
+            for user in users:
+                try:
+                    # 1. Fire due reminders
+                    fired = user.reminders.check_and_fire(user.channel)
+                    if fired > 0:
+                        activity.reminder_fired(f"{user.user_name}: {fired} reminder(s)")
+
+                    # 2. Run automations
+                    auto_count = check_automations(
+                        user.data_dir, user.notes_folder,
+                        user.channel, llm, config
+                    )
+                    if auto_count > 0:
+                        activity.automation_fired(
+                            f"{user.user_name}: {auto_count} automation(s)", "mixed"
+                        )
+
+                    # 3. Check cross-tasks
+                    if user.cross_tasks:
+                        user.cross_tasks.check_and_notify(user.channel)
+                except Exception as e:
+                    print(f"[scheduled] Error for {user.user_name}: {e}")
+
+            await asyncio.sleep(60)
+
+    print("[daemon] Starting Socket Mode...")
+    app, handler = create_socket_app(
+        bot_token=config.slack_bot_token,
+        app_token=config.slack_app_token,
+        on_message=handle_message,
+    )
+
+    async def run():
+        asyncio.create_task(scheduled_loop())
+        await handler.start_async()
+
+    asyncio.run(run())
+
+
+def _run_polling(config, users, llm, activity, args):
+    """Run the daemon in polling mode (fallback)."""
+    print("[daemon] Starting polling mode...")
 
     # Graceful shutdown
     running = True
@@ -381,8 +529,11 @@ def main():
                     user_message=new_msg.text, activity=activity,
                 )
 
-        # 3. Run automations from this user's Automations.md
-        auto_count = check_automations(user.notes_folder, user.channel, llm, config)
+        # 3. Run automations from this user's data dir
+        auto_count = check_automations(
+            user.data_dir, user.notes_folder,
+            user.channel, llm, config
+        )
         if auto_count > 0:
             activity.automation_fired(f"{user.user_name}: {auto_count} automation(s)", "mixed")
 

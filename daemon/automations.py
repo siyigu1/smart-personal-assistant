@@ -1,141 +1,85 @@
-"""Read and execute automations from Automations.md.
+"""Read and execute automations from automations.json.
 
-Parses the markdown table in Automations.md and fires actions
-when the current time matches. Supports two action types:
+Reads strict JSON from data/{user}/automations.json and fires actions
+when the current time matches. Supports three action types:
 - 'message': post directly to channel (zero tokens)
+- 'cached': post from a pre-generated cache file (zero tokens)
 - 'llm': send prompt to LLM, post response to channel
+
+The daemon is the writer and reader of automations.json.
+It also renders Automations.md in the user's Obsidian folder
+as a human-readable view.
 """
 
 import os
-import re
 import json
 import time
 from datetime import datetime, date
-from dataclasses import dataclass
 from typing import Optional
-
-
-@dataclass
-class Automation:
-    """A single scheduled automation."""
-    time: str           # HH:MM
-    days: str           # weekdays, daily, monday, etc.
-    action_type: str    # llm or message
-    description: str
-    prompt: str
 
 
 # Tolerance window: action fires if within this many seconds of scheduled time
 FIRE_WINDOW_SECONDS = 300  # 5 minutes
 
 
-def parse_automations(notes_folder: str) -> list[Automation]:
-    """Parse Automations.md and return list of automations."""
-    path = os.path.join(notes_folder, "Automations.md")
-    if not os.path.exists(path):
-        return []
+def should_fire(auto: dict, now: Optional[datetime] = None) -> bool:
+    """Check if an automation should fire right now based on its 'when' field.
 
-    with open(path) as f:
-        content = f.read()
+    The 'when' field uses two optional fields (at least one required):
+    - days: array of 3-letter weekday codes ["mon","tue","wed",...]
+    - dates: array of "MM-DD" (yearly) or "YYYY-MM-DD" (one-time)
 
-    # Find the markdown table rows (skip header and separator)
-    automations = []
-    in_table = False
-    header_rows_skipped = 0
-
-    for line in content.split("\n"):
-        line = line.strip()
-        if not line.startswith("|"):
-            if in_table:
-                break  # End of table
-            continue
-
-        if not in_table:
-            in_table = True
-
-        # Skip header row and separator row
-        if header_rows_skipped < 2:
-            header_rows_skipped += 1
-            continue
-
-        # Parse table row
-        cells = [c.strip() for c in line.split("|")[1:-1]]  # Remove empty first/last from split
-        if len(cells) < 5:
-            continue
-
-        time_str, days, action_type, description, prompt = (
-            cells[0], cells[1], cells[2], cells[3], cells[4]
-        )
-
-        # Skip example/placeholder rows
-        if time_str.startswith("_") or days == "disabled" or not time_str:
-            continue
-
-        # Validate time format
-        if not re.match(r"^\d{2}:\d{2}$", time_str):
-            continue
-
-        automations.append(Automation(
-            time=time_str,
-            days=days.lower().strip(),
-            action_type=action_type.lower().strip(),
-            description=description,
-            prompt=prompt,
-        ))
-
-    return automations
-
-
-def should_fire(automation: Automation, now: Optional[datetime] = None) -> bool:
-    """Check if an automation should fire right now."""
+    Fires if EITHER days or dates matches.
+    """
     if now is None:
         now = datetime.now()
 
-    # Check day
-    day_name = now.strftime("%A").lower()   # monday, tuesday, etc.
-    weekday = now.weekday()                  # 0=Mon, 6=Sun
+    when = auto.get("when", {})
 
-    days = automation.days
-    if days == "daily":
-        pass  # Always matches
-    elif days == "weekdays":
-        if weekday >= 5:
-            return False
-    elif days == "weekends":
-        if weekday < 5:
-            return False
-    elif "," in days:
-        # Comma-separated days
-        allowed = [d.strip() for d in days.split(",")]
-        if day_name not in allowed:
-            return False
-    else:
-        # Single day name
-        if day_name != days:
-            return False
+    # Check day-of-week match
+    day_match = now.strftime("%a").lower() in when.get("days", [])
+
+    # Check date match
+    date_match = any(
+        now.strftime("%m-%d") == d if len(d) == 5
+        else now.strftime("%Y-%m-%d") == d
+        for d in when.get("dates", [])
+    )
+
+    if not (day_match or date_match):
+        return False
 
     # Check time (within tolerance window)
     try:
-        hour, minute = map(int, automation.time.split(":"))
+        hour, minute = map(int, auto["time"].split(":"))
         scheduled_minutes = hour * 60 + minute
         current_minutes = now.hour * 60 + now.minute
         diff = abs(current_minutes - scheduled_minutes)
         return diff <= (FIRE_WINDOW_SECONDS // 60)
-    except ValueError:
+    except (ValueError, KeyError):
         return False
 
 
-def get_fired_today_path(notes_folder: str) -> str:
-    """Path to the file tracking which automations fired today."""
-    return os.path.join(notes_folder, ".automations-fired.json")
+def load_automations(data_dir: str) -> list[dict]:
+    """Load automations from the data directory's automations.json."""
+    path = os.path.join(data_dir, "automations.json")
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return data
+        return []
+    except (json.JSONDecodeError, OSError):
+        return []
 
 
-def load_fired_today(notes_folder: str) -> dict:
+def load_fired_today(data_dir: str) -> dict:
     """Load the set of automations that already fired today."""
-    path = get_fired_today_path(notes_folder)
+    path = os.path.join(data_dir, "automations-fired.json")
     if not os.path.exists(path):
         return {"date": "", "fired": []}
-
     try:
         with open(path) as f:
             data = json.load(f)
@@ -146,29 +90,94 @@ def load_fired_today(notes_folder: str) -> dict:
     today = date.today().isoformat()
     if data.get("date") != today:
         return {"date": today, "fired": []}
-
     return data
 
 
-def mark_fired(notes_folder: str, automation: Automation) -> None:
+def mark_fired(data_dir: str, auto: dict) -> None:
     """Mark an automation as fired today."""
-    data = load_fired_today(notes_folder)
+    data = load_fired_today(data_dir)
     data["date"] = date.today().isoformat()
 
-    key = f"{automation.time}|{automation.description}"
+    key = f"{auto.get('time', '')}|{auto.get('name', '')}"
     if key not in data["fired"]:
         data["fired"].append(key)
 
-    path = get_fired_today_path(notes_folder)
+    path = os.path.join(data_dir, "automations-fired.json")
     with open(path, "w") as f:
         json.dump(data, f)
 
 
-def check_and_run(notes_folder: str, channel, llm, config) -> int:
+def write_automations(data_dir: str, notes_folder: str, automations: list[dict]) -> None:
+    """Write automations to both JSON (for daemon) and Markdown (for user).
+
+    Args:
+        data_dir: Path to data/{user_id}/ for automations.json
+        notes_folder: Path to user's Obsidian folder for Automations.md
+        automations: List of automation dicts from LLM response
+    """
+    # Write JSON (daemon's source of truth)
+    json_path = os.path.join(data_dir, "automations.json")
+    with open(json_path, "w") as f:
+        json.dump(automations, f, indent=2, ensure_ascii=False)
+    print(f"[automations] Wrote {len(automations)} automation(s) to automations.json")
+
+    # Render Markdown (human-readable view in Obsidian)
+    render_automations_md(notes_folder, automations)
+
+
+def render_automations_md(notes_folder: str, automations: list[dict]) -> None:
+    """Render Automations.md from automation data for user viewing."""
+    lines = [
+        "# Automations",
+        "",
+        "_This file is auto-generated by the daemon. Edit automations by telling the bot._",
+        "",
+        "| Time | Schedule | Type | Name | Details |",
+        "|------|----------|------|------|---------|",
+    ]
+
+    for auto in automations:
+        time_str = auto.get("time", "")
+        when = auto.get("when", {})
+        action = auto.get("action", "")
+        name = auto.get("name", "")
+
+        # Format schedule
+        schedule_parts = []
+        if "days" in when:
+            schedule_parts.append(", ".join(when["days"]))
+        if "dates" in when:
+            schedule_parts.append(", ".join(when["dates"]))
+        schedule = "; ".join(schedule_parts)
+
+        # Format details
+        if action == "message":
+            details = auto.get("text", "")
+        elif action == "llm":
+            details = auto.get("prompt", "")[:50] + ("..." if len(auto.get("prompt", "")) > 50 else "")
+        elif action == "cached":
+            details = auto.get("cache_file", "")
+        else:
+            details = ""
+
+        # Escape pipe chars in table cells
+        details = details.replace("|", "\\|").replace("\n", " ")
+        name = name.replace("|", "\\|")
+
+        lines.append(f"| {time_str} | {schedule} | {action} | {name} | {details} |")
+
+    md_path = os.path.join(notes_folder, "Automations.md")
+    with open(md_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"[automations] Rendered Automations.md")
+
+
+def check_and_run(data_dir: str, notes_folder: str, channel, llm, config) -> int:
     """Check all automations and run any that are due.
 
     Args:
-        notes_folder: Path to notes folder containing Automations.md
+        data_dir: Path to data/{user_id}/ containing automations.json
+        notes_folder: Path to notes folder for building prompts
         channel: ChannelClient for posting messages
         llm: LLMBridge for LLM-type actions
         config: Config object
@@ -179,16 +188,16 @@ def check_and_run(notes_folder: str, channel, llm, config) -> int:
     from .context_builder import build_prompt
     from .file_updater import apply_updates
 
-    automations = parse_automations(notes_folder)
+    automations = load_automations(data_dir)
     if not automations:
         return 0
 
-    fired_data = load_fired_today(notes_folder)
+    fired_data = load_fired_today(data_dir)
     now = datetime.now()
     count = 0
 
     for auto in automations:
-        key = f"{auto.time}|{auto.description}"
+        key = f"{auto.get('time', '')}|{auto.get('name', '')}"
 
         # Skip if already fired today
         if key in fired_data.get("fired", []):
@@ -197,27 +206,44 @@ def check_and_run(notes_folder: str, channel, llm, config) -> int:
         if not should_fire(auto, now):
             continue
 
-        print(f"[automations] Firing: {auto.description} ({auto.time})")
+        action = auto.get("action", "")
+        name = auto.get("name", key)
+        print(f"[automations] Firing: {name} ({auto.get('time', '')})")
 
-        if auto.action_type == "message":
+        if action == "message":
             # Direct message — zero tokens
-            channel.post(auto.prompt)
-        elif auto.action_type == "llm":
+            text = auto.get("text", "")
+            if text:
+                channel.post(text)
+        elif action == "cached":
+            # Post from cache file — zero tokens
+            cache_file = auto.get("cache_file", "")
+            if cache_file:
+                cache_path = os.path.join(data_dir, cache_file)
+                if os.path.exists(cache_path):
+                    with open(cache_path) as f:
+                        channel.post(f.read())
+                else:
+                    print(f"[automations] Cache file not found: {cache_path}")
+        elif action == "llm":
             # LLM action — build prompt from automation's prompt field
-            prompt = build_prompt(
-                notes_folder=notes_folder,
-                operation="automation",
-                user_message=auto.prompt,
-            )
-            raw = llm.invoke(prompt)
-            if raw:
-                response = llm.parse_response(raw)
-                if response.slack_message:
-                    channel.post(response.slack_message)
-                if response.file_updates:
-                    apply_updates(response, notes_folder)
+            prompt_text = auto.get("prompt", "")
+            if prompt_text:
+                prompt = build_prompt(
+                    notes_folder=notes_folder,
+                    operation="automation",
+                    user_message=prompt_text,
+                    data_dir=data_dir,
+                )
+                raw = llm.invoke(prompt)
+                if raw:
+                    response = llm.parse_response(raw)
+                    if response.slack_message:
+                        channel.post(response.slack_message)
+                    if response.file_updates:
+                        apply_updates(response, notes_folder, data_dir=data_dir)
 
-        mark_fired(notes_folder, auto)
+        mark_fired(data_dir, auto)
         count += 1
 
     return count

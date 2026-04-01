@@ -33,6 +33,7 @@ load_language
 USER_NAME=""
 ASSISTANT_NAME=""
 SLACK_BOT_TOKEN=""
+SLACK_APP_TOKEN=""
 SLACK_CHANNEL_ID=""
 SLACK_CHANNEL_NAME=""
 TIMEZONE=""
@@ -215,10 +216,11 @@ load_existing_config() {
     CHANNEL_PROVIDER=$(json_val "channel_provider" "$cfg")
     SETUP_MODE=$(json_val "setup_mode" "$cfg")
 
-    # Load bot token from .env if it exists
+    # Load tokens from .env if it exists
     local env_file="$NOTES_FOLDER/.env"
     if [[ -f "$env_file" ]]; then
         SLACK_BOT_TOKEN=$(grep '^SLACK_BOT_TOKEN=' "$env_file" 2>/dev/null | cut -d= -f2- || echo "")
+        SLACK_APP_TOKEN=$(grep '^SLACK_APP_TOKEN=' "$env_file" 2>/dev/null | cut -d= -f2- || echo "")
     fi
 
     # Load family settings
@@ -432,8 +434,15 @@ print(slug if slug else 'personal-assistant')
     }
   },
   "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "message.channels",
+        "message.groups",
+        "message.im"
+      ]
+    },
     "org_deploy_enabled": false,
-    "socket_mode_enabled": false,
+    "socket_mode_enabled": true,
     "token_rotation_enabled": false
   }
 }
@@ -444,7 +453,7 @@ MANIFEST
     encoded_manifest=$(python3 -c "import urllib.parse, json; print(urllib.parse.quote(json.dumps(json.load(open('$manifest_file')))))" 2>/dev/null || echo "")
 
     # Step 1: Create App
-    echo -e "  ${BOLD}Step 1/3: Create the Slack App${NC}"
+    echo -e "  ${BOLD}Step 1/4: Create the Slack App${NC}"
 
     if [[ -n "$encoded_manifest" ]]; then
         echo "    1. $MSG_SLACK_OPEN_AUTO"
@@ -465,9 +474,9 @@ MANIFEST
     echo ""
     confirm "$MSG_DONE" || true
 
-    # Step 2: Install + Copy Token
+    # Step 2: Install + Copy Bot Token
     echo ""
-    echo -e "  ${BOLD}Step 2/3: Install & Copy Token${NC}"
+    echo -e "  ${BOLD}Step 2/4: Install & Copy Bot Token${NC}"
     echo "    → $MSG_SLACK_INSTALL"
     echo "    → $MSG_SLACK_INSTALL2"
     echo "    → $MSG_SLACK_INSTALL3"
@@ -478,9 +487,27 @@ MANIFEST
         print_warning "Token doesn't start with 'xoxb-' — make sure you copied the Bot token, not the User token"
     fi
 
-    # Step 3: Channel
+    # Step 3: App-Level Token (for Socket Mode)
     echo ""
-    echo -e "  ${BOLD}Step 3/3: Set Up Channel${NC}"
+    echo -e "  ${BOLD}Step 3/4: App-Level Token (for instant messages)${NC}"
+    echo "    → In your Slack app settings, go to 'Basic Information'"
+    echo "    → Scroll down to 'App-Level Tokens'"
+    echo "    → Click 'Generate Token and Scopes'"
+    echo "    → Name it 'socket-mode', add scope 'connections:write'"
+    echo "    → Click 'Generate' and copy the token (starts with xapp-)"
+    echo ""
+    ask "App-Level Token (xapp-...):" SLACK_APP_TOKEN
+
+    if [[ -n "$SLACK_APP_TOKEN" && ! "$SLACK_APP_TOKEN" =~ ^xapp- ]]; then
+        print_warning "Token doesn't start with 'xapp-' — make sure you copied the App-Level Token"
+    fi
+    if [[ -z "$SLACK_APP_TOKEN" ]]; then
+        print_warning "No App-Level Token provided. The daemon will use polling mode (slower)."
+    fi
+
+    # Step 4: Channel
+    echo ""
+    echo -e "  ${BOLD}Step 4/4: Set Up Channel${NC}"
     echo "    → $MSG_SLACK_CHANNEL_CREATE"
     echo -e "    → Invite the bot: /invite @${app_name}"
     echo "    → $MSG_SLACK_CHANNEL_ID_HINT"
@@ -721,6 +748,7 @@ generate_files() {
     print_step "$MSG_GENERATING"
 
     mkdir -p "$NOTES_FOLDER"
+    mkdir -p "$NOTES_FOLDER/reference"
 
     # Use Chinese framework files if language is zh
     local framework_src="$SCRIPT_DIR/framework"
@@ -728,49 +756,45 @@ generate_files() {
         framework_src="$SCRIPT_DIR/framework/zh"
     fi
 
-    # Detect if language changed — if so, re-copy framework files
-    local lang_changed=false
-    if [[ -f "$NOTES_FOLDER/START HERE.md" ]]; then
-        # Check if the existing START HERE.md matches the selected language
-        if [[ "$LANG_CODE" == "zh" ]] && head -1 "$NOTES_FOLDER/START HERE.md" | grep -q "Personal Assistant"; then
-            lang_changed=true
-        elif [[ "$LANG_CODE" == "en" ]] && head -1 "$NOTES_FOLDER/START HERE.md" | grep -q "智能助手"; then
-            lang_changed=true
+    # Baseline files go to reference/ (always overwritable)
+    local baseline_files=(
+        "START HERE.md"
+        "Getting Started.md"
+        "Cognitive Levels.md"
+        "Priority Framework.md"
+        "Cowork Agent Playbook.md"
+    )
+
+    # Template files go to root level (only if not already present)
+    local template_files=(
+        "Automations.md"
+        "Grocery List.md"
+    )
+
+    # Copy baseline files to reference/ (always overwrite — these are upgradeable)
+    for basename in "${baseline_files[@]}"; do
+        local src="$framework_src/$basename"
+        if [[ -f "$src" ]]; then
+            cp "$src" "$NOTES_FOLDER/reference/$basename"
+            print_success "reference/$basename"
         fi
-    fi
+    done
 
-    # Copy framework files
-    # - Skip user data files (Workstreams, Weekly Goals, Daily Scaffolding) if they exist and have real content
-    # - Always overwrite reference/template files if language changed
-    local user_data_files="Workstreams.md|Weekly Goals.md|Daily Scaffolding.md|Automations.md|Grocery List.md"
-
-    for f in "$framework_src"/*.md; do
-        local basename
-        basename=$(basename "$f")
-        if [[ ! -f "$NOTES_FOLDER/$basename" ]]; then
-            cp "$f" "$NOTES_FOLDER/$basename"
+    # Copy template files to root level (only if not already present)
+    for basename in "${template_files[@]}"; do
+        local src="$framework_src/$basename"
+        if [[ -f "$src" && ! -f "$NOTES_FOLDER/$basename" ]]; then
+            cp "$src" "$NOTES_FOLDER/$basename"
             print_success "$basename"
-        elif [[ "$lang_changed" == true && ! "$basename" =~ ^($user_data_files)$ ]]; then
-            # Language changed — overwrite reference files (not user data)
-            cp "$f" "$NOTES_FOLDER/$basename"
-            print_success "$basename (updated)"
-        elif [[ "$lang_changed" == true ]]; then
-            # User data file exists but language changed — only overwrite if still placeholder
-            if grep -q "Not filled in yet\|set during onboarding\|尚未填写\|入门设置时填写\|_to be filled_\|_example:_" "$NOTES_FOLDER/$basename" 2>/dev/null; then
-                cp "$f" "$NOTES_FOLDER/$basename"
-                print_success "$basename (updated)"
-            else
-                print_warning "$basename $MSG_ALREADY_EXISTS"
-            fi
-        else
+        elif [[ -f "$NOTES_FOLDER/$basename" ]]; then
             print_warning "$basename $MSG_ALREADY_EXISTS"
         fi
     done
 
-    # Create reminders.json if not exists
-    if [[ ! -f "$NOTES_FOLDER/reminders.json" ]]; then
-        echo "[]" > "$NOTES_FOLDER/reminders.json"
-        print_success "reminders.json"
+    # Also copy Travel Master List.md if it exists (optional template)
+    if [[ -f "$framework_src/Travel Master List.md" && ! -f "$NOTES_FOLDER/Travel Master List.md" ]]; then
+        cp "$framework_src/Travel Master List.md" "$NOTES_FOLDER/Travel Master List.md"
+        print_success "Travel Master List.md"
     fi
 
     # System prompt (always regenerated with current settings)
@@ -790,25 +814,32 @@ generate_files() {
         echo ""
         echo -e "  ${BOLD}Family: $FAMILY_NAME${NC}"
         mkdir -p "$FAMILY_NOTES_FOLDER"
+        mkdir -p "$FAMILY_NOTES_FOLDER/reference"
 
-        for f in "$framework_src"/*.md; do
-            local basename
-            basename=$(basename "$f")
-            if [[ ! -f "$FAMILY_NOTES_FOLDER/$basename" ]]; then
-                cp "$f" "$FAMILY_NOTES_FOLDER/$basename"
+        # Baseline to reference/
+        for basename in "${baseline_files[@]}"; do
+            local src="$framework_src/$basename"
+            if [[ -f "$src" ]]; then
+                cp "$src" "$FAMILY_NOTES_FOLDER/reference/$basename"
+                print_success "reference/$basename"
+            fi
+        done
+
+        # Templates to root
+        for basename in "${template_files[@]}"; do
+            local src="$framework_src/$basename"
+            if [[ -f "$src" && ! -f "$FAMILY_NOTES_FOLDER/$basename" ]]; then
+                cp "$src" "$FAMILY_NOTES_FOLDER/$basename"
                 print_success "$basename"
             else
                 print_warning "$basename $MSG_ALREADY_EXISTS"
             fi
         done
 
-        if [[ ! -f "$FAMILY_NOTES_FOLDER/reminders.json" ]]; then
-            echo "[]" > "$FAMILY_NOTES_FOLDER/reminders.json"
-            print_success "reminders.json"
-        fi
-
-        # Create cross-tasks.json if needed
-        local cross_path="$(dirname "$NOTES_FOLDER")/cross-tasks.json"
+        # Create cross-tasks.json in data dir if needed
+        local data_dir="$SCRIPT_DIR/data"
+        mkdir -p "$data_dir"
+        local cross_path="$data_dir/cross-tasks.json"
         if [[ ! -f "$cross_path" ]]; then
             echo '{"pending":[],"completed":[],"rejected":[]}' > "$cross_path"
             print_success "cross-tasks.json"
@@ -845,7 +876,10 @@ install_deps() {
     # Create/update .env
     local env_file="$NOTES_FOLDER/.env"
     echo "SLACK_BOT_TOKEN=$SLACK_BOT_TOKEN" > "$env_file"
-    print_success ".env updated (bot token stored)"
+    if [[ -n "$SLACK_APP_TOKEN" ]]; then
+        echo "SLACK_APP_TOKEN=$SLACK_APP_TOKEN" >> "$env_file"
+    fi
+    print_success ".env updated (tokens stored)"
 }
 
 # ─── Create Scheduled Tasks (Cowork Mode) ──────────────────────
@@ -981,6 +1015,8 @@ setup_launchd() {
         <string>$NOTES_FOLDER/.mc-config.json</string>
         <key>SLACK_BOT_TOKEN</key>
         <string>$SLACK_BOT_TOKEN</string>
+        <key>SLACK_APP_TOKEN</key>
+        <string>$SLACK_APP_TOKEN</string>
     </dict>
     <key>StandardOutPath</key>
     <string>$HOME/.mission-control.log</string>
@@ -1015,6 +1051,7 @@ ExecStart=$SCRIPT_DIR/.venv/bin/python3 -m daemon.main
 WorkingDirectory=$SCRIPT_DIR
 Environment=MC_CONFIG=$NOTES_FOLDER/.mc-config.json
 Environment=SLACK_BOT_TOKEN=$SLACK_BOT_TOKEN
+Environment=SLACK_APP_TOKEN=$SLACK_APP_TOKEN
 Restart=always
 RestartSec=10
 

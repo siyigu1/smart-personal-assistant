@@ -8,8 +8,9 @@ from dataclasses import dataclass, field
 class LLMResponse:
     """Parsed response from an LLM invocation."""
     slack_message: str
-    file_updates: dict[str, str] = field(default_factory=dict)
+    file_updates: dict = field(default_factory=dict)  # str→str or "automations"→list
     short_term_memory: dict = field(default_factory=dict)
+    need_more_context: list = field(default_factory=list)
     onboarding_complete: bool = False
     raw: str = ""
 
@@ -135,12 +136,21 @@ class LLMBridge(ABC):
         files = data.get("files", {})
         file_updates = {}
         for key, content in files.items():
+            # Special: "automations" as array → keep as-is for daemon processing
+            if key.lower() == "automations" and isinstance(content, list):
+                file_updates["automations"] = content
+                continue
             # Normalize: "Workstreams" → "Workstreams.md"
             filename = key if key.endswith(".md") else f"{key}.md"
             file_updates[filename] = content
 
         # Extract short-term memory
         short_term_memory = data.get("short_term_memory", {})
+
+        # Extract need_more_context
+        need_more_context = data.get("need_more_context", [])
+        if isinstance(need_more_context, str):
+            need_more_context = [need_more_context]
 
         # Check onboarding_complete flag
         onboarding_complete = bool(data.get("onboarding_complete", False))
@@ -151,6 +161,7 @@ class LLMBridge(ABC):
             slack_message=slack_message,
             file_updates=file_updates,
             short_term_memory=short_term_memory,
+            need_more_context=need_more_context,
             onboarding_complete=onboarding_complete,
             raw=raw,
         )

@@ -19,8 +19,8 @@ class Conversation:
     and text.
     """
 
-    def __init__(self, notes_folder: str):
-        self.state_file = os.path.join(notes_folder, ".conversation-state.json")
+    def __init__(self, data_dir: str):
+        self.state_file = os.path.join(data_dir, "conversation-state.json")
 
     def is_active(self) -> bool:
         """Check if there's an active multi-turn conversation."""

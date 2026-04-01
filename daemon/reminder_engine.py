@@ -14,8 +14,8 @@ from .channels.base import ChannelClient
 class ReminderEngine:
     """Check and fire due reminders. No LLM involvement."""
 
-    def __init__(self, notes_folder: str):
-        self.path = os.path.join(notes_folder, "reminders.json")
+    def __init__(self, data_dir: str):
+        self.path = os.path.join(data_dir, "reminders.json")
 
     def check_and_fire(self, channel: ChannelClient) -> int:
         """Check for due reminders and fire them.
