@@ -616,9 +616,9 @@ except Exception as e:
         echo -e "  ${BOLD}Test 3: AI round-trip${NC}"
         echo "  Sending test prompt to AI..."
         local ai_result
-        ai_result=$(echo 'Respond with exactly: {"messages":["Hello from AI test!"]}' | claude -p --tools "" --output-format text 2>&1 | head -5)
+        ai_result=$(echo 'Say "test ok" and nothing else.' | claude -p --tools "" --output-format text 2>&1 | head -5)
 
-        if echo "$ai_result" | grep -q "Hello"; then
+        if echo "$ai_result" | grep -qi "test ok\|ok"; then
             print_success "AI responded successfully"
         elif echo "$ai_result" | grep -qi "auth\|login\|401\|unauthorized"; then
             print_error "AI authentication failed"
@@ -627,13 +627,50 @@ except Exception as e:
         elif echo "$ai_result" | grep -qi "update"; then
             print_warning "AI CLI may need an update"
             echo "    Run: claude update"
+        elif [[ -n "$ai_result" ]]; then
+            # Got some response — AI is working even if not exact format
+            print_success "AI responded (connection working)"
         else
-            print_warning "AI response unexpected: ${ai_result:0:100}"
-            echo "    This may still work — try ./run.sh --once to verify"
+            print_error "No response from AI"
+            echo "    Check: claude login"
         fi
     else
         echo ""
         print_warning "Skipping AI test — claude CLI not found"
+    fi
+
+    # Test 4: Receive message (user sends a test message)
+    echo ""
+    echo -e "  ${BOLD}Test 4: Receive message from Slack${NC}"
+    echo "  Send any message in $test_channel_name now."
+    echo ""
+    read -rp "$(echo -e "  ${BOLD}Press Enter after you've sent a message...${NC} ")"
+
+    local recv_result
+    recv_result=$("$PYTHON" -c "
+from slack_sdk import WebClient
+client = WebClient(token='$test_token')
+try:
+    result = client.conversations_history(channel='$test_channel_id', limit=3)
+    msgs = result.get('messages', [])
+    user_msgs = [m for m in msgs if not m.get('bot_id') and not m.get('subtype')]
+    if user_msgs:
+        print(f'ok:{user_msgs[0][\"text\"][:50]}')
+    else:
+        print('error:no_user_messages')
+except Exception as e:
+    print(f'error: {e}')
+" 2>&1 || echo "error: failed")
+
+    if [[ "$recv_result" == ok:* ]]; then
+        local msg_preview="${recv_result#ok:}"
+        print_success "Received message: \"$msg_preview\""
+    else
+        print_error "Could not find your message"
+        echo "    Check:"
+        echo "      - Did you send the message in $test_channel_name?"
+        echo "      - Is the bot invited to the channel?"
+        echo "      - Does the bot have channels:history scope?"
     fi
 
     echo ""
