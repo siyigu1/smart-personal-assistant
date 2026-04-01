@@ -28,6 +28,7 @@ from .context_builder import build_prompt
 from .file_updater import apply_updates
 from .activity_log import ActivityLog
 from .user_context import UserContext, create_user_contexts
+from .maintenance import run_maintenance
 
 
 def needs_onboarding(notes_folder: str) -> bool:
@@ -246,6 +247,16 @@ def _run_operation_locked(
             _json.dump(existing, f, indent=2, ensure_ascii=False)
         print(f"[daemon] Short-term memory: {len(existing)} entries")
 
+    # Handle manual tidy trigger
+    if response.trigger_tidy:
+        from .maintenance import tidy_context
+        print(f"[daemon] User requested context tidying")
+        tidy_context(
+            user.data_dir, user.notes_folder, llm, config,
+            lang=user.language if hasattr(user, 'language') else 'en',
+            force=True, activity=activity,
+        )
+
     # Log the call
     if activity:
         activity.llm_call(
@@ -409,6 +420,13 @@ def _run_socket_mode(config, users, llm, activity, args):
                     # 2. Check cross-tasks
                     if user.cross_tasks:
                         user.cross_tasks.check_and_notify(user.channel)
+
+                    # 3. Run maintenance (each task checks its own schedule)
+                    run_maintenance(
+                        user.data_dir, user.notes_folder,
+                        user.channel, llm, config,
+                        lang=user.language, activity=activity,
+                    )
                 except Exception as e:
                     print(f"[scheduled] Error for {user.user_name}: {e}")
 
@@ -530,6 +548,13 @@ def _run_polling(config, users, llm, activity, args):
         # 3. Check cross-tasks
         if user.cross_tasks:
             user.cross_tasks.check_and_notify(user.channel)
+
+        # 4. Run maintenance (each task checks its own schedule)
+        run_maintenance(
+            user.data_dir, user.notes_folder,
+            user.channel, llm, config,
+            lang=user.language, activity=activity,
+        )
 
         # For --once mode (testing) — run one cycle per user then exit
         if args.once and user_index >= len(users):

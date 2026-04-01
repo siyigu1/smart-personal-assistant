@@ -90,14 +90,30 @@ Preserve my priority order. Keep all my existing task details.
 ]
 ```
 
-Convert my existing reminders, scheduled dispatches, check-ins, etc.
+Convert my existing reminders, scheduled dispatches, check-ins, etc. Reminders are automations with `action: "message"`.
+
+**Cross-tasks** — If I have a family member's setup too, generate a `cross-tasks.json`:
+```json
+{"pending": [], "completed": [], "rejected": []}
+```
+
+For each family member, generate a SEPARATE set of all the above files. Each person has their own:
+- Workstreams.md, Weekly Goals.md, Daily Scaffolding.md, Preferences.md
+- automations.json (their own schedule/reminders)
+
+Cross-task feature: users can assign tasks to each other. When user A says "remind Hao to take out trash", the bot:
+1. Adds to cross-tasks.json: `{"from": "Siyi", "to": "Hao", "task": "take out trash", "status": "pending"}`
+2. Hao's bot notifies him
+3. When Hao completes it, status changes to "completed" and Siyi gets notified
 
 3. **Preserve everything** — don't drop any tasks, decisions, or context from my existing files. If something doesn't fit the format, add it to the appropriate section's notes.
 
 4. **Ask me** if anything is unclear about my existing setup before generating.
 
+5. **Family members** — If I share files for multiple people, generate separate file sets for each. Ask me about each person's channel and preferences.
+
 ---
 
 ## My existing files
 
-_(Share your files below this line, or upload them)_
+_(Share your files below this line, or upload them. If you have a family member's files too, include those and note whose is whose.)_

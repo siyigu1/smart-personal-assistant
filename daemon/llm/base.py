@@ -12,6 +12,7 @@ class LLMResponse:
     short_term_memory: dict = field(default_factory=dict)
     need_more_context: list = field(default_factory=list)
     onboarding_complete: bool = False
+    trigger_tidy: bool = False
     add_automations: list = field(default_factory=list)
     update_automations: list = field(default_factory=list)
     remove_automations: list = field(default_factory=list)
@@ -170,12 +171,15 @@ class LLMBridge(ABC):
         if onboarding_complete:
             slack_message += "\nONBOARDING_COMPLETE"
 
+        trigger_tidy = bool(data.get("trigger_tidy", False))
+
         return LLMResponse(
             slack_message=slack_message,
             file_updates=file_updates,
             short_term_memory=short_term_memory,
             need_more_context=need_more_context,
             onboarding_complete=onboarding_complete,
+            trigger_tidy=trigger_tidy,
             add_automations=add_automations,
             update_automations=update_automations,
             remove_automations=remove_automations,

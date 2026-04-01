@@ -17,6 +17,7 @@ OPERATION_FILES = {
         "Workstreams.md",
         "Weekly Goals.md",
         "Daily Scaffolding.md",
+        "System Notices.md",
     ],
     "midday_checkin": [
         "Weekly Goals.md",
@@ -317,9 +318,11 @@ Rules:
 - "short_term_memory": temp context to remember across messages (partial answers, clarifications, state). NOT saved to user files. Fed back to you next call. Use to avoid re-asking. Omit if empty.
 - "need_more_context": array of file names you need to see to answer properly. Daemon will re-call you with those files. Only use when you truly can't answer without them. Omit if not needed.
 - "onboarding_complete": true ONLY when you've gathered everything and are writing files
+- "trigger_tidy": true when user asks to clean up/tidy/reorganize their files. The daemon will run file cleanup automatically.
 - File content = COMPLETE file, not a diff. Write it exactly as it should appear on disk (proper markdown formatting, headings, blank lines, etc.)
+- System Notices.md contains notices from overnight maintenance (OS updates, AI CLI updates, etc.). Include relevant notices in your morning dispatch or when the user asks about system status. Do NOT repeat old notices.
 
-If no file updates are needed, omit the FILE_UPDATES section entirely.
+If no file updates are needed, omit the files field entirely.
 """
 
     return prompt
