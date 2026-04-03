@@ -142,19 +142,10 @@ MSG_DAEMON_STOPPING="Stopping existing daemon..."
 MSG_DAEMON_STOPPED="Daemon stopped"
 MSG_DAEMON_RESTARTING="Restarting daemon with updated config..."
 MSG_DAEMON_MANUAL_REMINDER="Daemon has been stopped. To start it manually:"
-MSG_DAEMON_FDA_TITLE="Full Disk Access Required"
-MSG_DAEMON_FDA_EXPLAIN="Your notes folder is in iCloud. macOS blocks background services from accessing iCloud files unless the Python interpreter has Full Disk Access."
-MSG_DAEMON_FDA_STEPS="To fix this:"
-MSG_DAEMON_FDA_STEP1="1. System Settings will open to Privacy & Security → Full Disk Access"
-MSG_DAEMON_FDA_STEP2="2. Click '+' and add this file:"
-MSG_DAEMON_FDA_STEP3="3. Re-run ./setup.sh to restart the daemon"
-MSG_DAEMON_FDA_OPEN="Opening System Settings..."
-MSG_DAEMON_FDA_SKIP="(If you prefer, press Enter to skip — the daemon will work if you run ./run.sh manually from Terminal)"
-
-# Restart
-MSG_RESTART_TITLE="Restarting Daemon"
-MSG_RESTART_DETECTED="Detected running daemon — restarting with new configuration..."
-MSG_RESTART_DONE="Daemon restarted with new configuration"
+MSG_DAEMON_FDA_TITLE="iCloud Notes Folder Detected"
+MSG_DAEMON_FDA_EXPLAIN="macOS blocks background services (launchd) from accessing iCloud files. Since your notes are in iCloud, the daemon must run from Terminal instead."
+MSG_DAEMON_FDA_MANUAL="To start the daemon, run this in Terminal:"
+MSG_DAEMON_FDA_TIP="Tip: add this command to your shell profile (~/.zshrc) to start it automatically on login."
 
 # Summary
 MSG_SUMMARY_COMPLETE="Setup Complete!"

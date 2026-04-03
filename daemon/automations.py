@@ -51,6 +51,29 @@ def _ensure_ids(automations: list[dict]) -> list[dict]:
     return automations
 
 
+def _normalize_when(when) -> dict:
+    """Normalize a 'when' field to a dict with 'days' and/or 'dates' arrays.
+
+    Handles shorthand strings like "weekdays", "sunday", "daily", etc.
+    """
+    if isinstance(when, dict):
+        return when
+    if not isinstance(when, str):
+        return {}
+    w = when.lower().strip()
+    if w == "weekdays":
+        return {"days": ["mon", "tue", "wed", "thu", "fri"]}
+    if w in ("everyday", "daily"):
+        return {"days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]}
+    if w == "weekends":
+        return {"days": ["sat", "sun"]}
+    if w in ("mon", "tue", "wed", "thu", "fri", "sat", "sun",
+             "monday", "tuesday", "wednesday", "thursday",
+             "friday", "saturday", "sunday"):
+        return {"days": [w[:3]]}
+    return {}
+
+
 def _is_one_time_date(date_str: str) -> bool:
     """Check if a date string is a one-time date (YYYY-MM-DD format)."""
     return bool(re.match(r'^\d{4}-\d{2}-\d{2}$', date_str))
@@ -68,7 +91,7 @@ def should_fire(auto: dict, now: Optional[datetime] = None) -> bool:
     if now is None:
         now = datetime.now()
 
-    when = auto.get("when", {})
+    when = _normalize_when(auto.get("when", {}))
 
     # Check day-of-week match
     day_match = now.strftime("%a").lower() in when.get("days", [])
@@ -230,7 +253,7 @@ def cleanup_one_time(data_dir: str, notes_folder: str) -> int:
     removed = 0
 
     for auto in automations:
-        when = auto.get("when", {})
+        when = _normalize_when(auto.get("when", {}))
         days = when.get("days", [])
         dates = when.get("dates", [])
 
@@ -272,7 +295,7 @@ def get_automation_summary(data_dir: str) -> str:
         aid = auto.get("id", "????")
         name = auto.get("name", "unnamed")
         time_str = auto.get("time", "??:??")
-        when = auto.get("when", {})
+        when = _normalize_when(auto.get("when", {}))
         schedule_parts = []
         if "days" in when:
             schedule_parts.append(",".join(when["days"]))
@@ -316,7 +339,7 @@ def render_automations_md(notes_folder: str, automations: list[dict]) -> None:
     for auto in automations:
         aid = auto.get("id", "")
         time_str = auto.get("time", "")
-        when = auto.get("when", {})
+        when = _normalize_when(auto.get("when", {}))
         action = auto.get("action", "")
         name = auto.get("name", "")
 
@@ -386,43 +409,51 @@ def check_and_run(data_dir: str, notes_folder: str, channel, llm, config) -> int
 
         action = auto.get("action", "")
         name = auto.get("name", key)
-        print(f"[automations] Firing: {name} ({auto.get('time', '')})")
 
-        if action == "message":
-            # Direct message — zero tokens
-            text = auto.get("text", "")
-            if text:
-                channel.post(text)
-        elif action == "cached":
-            # Post from cache file — zero tokens
-            cache_file = auto.get("cache_file", "")
-            if cache_file:
-                cache_path = os.path.join(data_dir, cache_file)
-                if os.path.exists(cache_path):
-                    with open(cache_path) as f:
-                        channel.post(f.read())
-                else:
-                    print(f"[automations] Cache file not found: {cache_path}")
-        elif action == "llm":
-            # LLM action — build prompt from automation's prompt field
-            prompt_text = auto.get("prompt", "")
-            if prompt_text:
-                prompt = build_prompt(
-                    notes_folder=notes_folder,
-                    operation="automation",
-                    user_message=prompt_text,
-                    data_dir=data_dir,
-                )
-                raw = llm.invoke(prompt)
-                if raw:
-                    response = llm.parse_response(raw)
-                    if response.slack_message:
-                        channel.post(response.slack_message)
-                    if response.file_updates:
-                        apply_updates(response, notes_folder, data_dir=data_dir)
+        try:
+            print(f"[automations] Firing: {name} ({auto.get('time', '')})")
 
-        mark_fired(data_dir, auto)
-        count += 1
+            if action == "message":
+                # Direct message — zero tokens
+                text = auto.get("text", "")
+                if text:
+                    channel.post(text)
+            elif action == "cached":
+                # Post from cache file — zero tokens
+                cache_file = auto.get("cache_file", "")
+                if cache_file:
+                    cache_path = os.path.join(data_dir, cache_file)
+                    if os.path.exists(cache_path):
+                        with open(cache_path) as f:
+                            channel.post(f.read())
+                    else:
+                        print(f"[automations] Cache file not found: {cache_path}")
+            elif action == "llm":
+                # LLM action — build prompt from automation's prompt field
+                prompt_text = auto.get("prompt", "")
+                if prompt_text:
+                    prompt = build_prompt(
+                        notes_folder=notes_folder,
+                        operation="automation",
+                        user_message=prompt_text,
+                        data_dir=data_dir,
+                    )
+                    raw = llm.invoke(prompt)
+                    if raw:
+                        response = llm.parse_response(raw)
+                        if response.slack_message:
+                            channel.post(response.slack_message)
+                        if response.file_updates:
+                            apply_updates(response, notes_folder, data_dir=data_dir)
+
+            mark_fired(data_dir, auto)
+            count += 1
+        except Exception as e:
+            print(f"[automations] Error firing '{name}': {e}")
+            import traceback
+            traceback.print_exc()
+            # Mark as fired to avoid retrying a broken automation every cycle
+            mark_fired(data_dir, auto)
 
     # Auto-cleanup: remove expired one-time entries after firing
     if count > 0:

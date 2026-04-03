@@ -354,55 +354,62 @@ def _run_socket_mode(config, users, llm, activity, args):
 
     def handle_message(channel_id: str, text: str, say_fn):
         """Handle an incoming Slack message from Socket Mode."""
-        user = channel_map.get(channel_id)
-        if not user:
-            print(f"[socket] Message from unknown channel {channel_id}, ignoring")
-            return
+        try:
+            user = channel_map.get(channel_id)
+            if not user:
+                print(f"[socket] Message from unknown channel {channel_id}, ignoring")
+                return
 
-        print(f"[socket] Message from {user.user_name}: {text[:80]}")
+            print(f"[socket] Message from {user.user_name}: {text[:80]}")
 
-        say_fn(t("ack", user.language))
+            say_fn(t("ack", user.language))
 
-        # Route: active conversation > needs onboarding > normal
-        if user.conversation.is_active():
-            conv_type = user.conversation.get_type()
-            user.conversation.add_user_message(text)
-            history = user.conversation.get_history_text()
+            # Route: active conversation > needs onboarding > normal
+            if user.conversation.is_active():
+                conv_type = user.conversation.get_type()
+                user.conversation.add_user_message(text)
+                history = user.conversation.get_history_text()
 
-            run_operation(
-                llm, user, config, conv_type,
-                user_message=text,
-                activity=activity,
-                conversation_history=history,
-            )
+                run_operation(
+                    llm, user, config, conv_type,
+                    user_message=text,
+                    activity=activity,
+                    conversation_history=history,
+                )
 
-            recent = user.channel.get_recent_history(limit=1)
-            if recent and recent[0].is_bot:
-                user.conversation.add_assistant_message(recent[0].text)
-                if "ONBOARDING_COMPLETE" in recent[0].text:
-                    if not needs_onboarding(user.notes_folder):
-                        print(f"[daemon] Onboarding complete for {user.user_name}")
-                        user.conversation.end()
-                        activity.log("onboarding", f"{user.user_name}: completed")
+                recent = user.channel.get_recent_history(limit=1)
+                if recent and recent[0].is_bot:
+                    user.conversation.add_assistant_message(recent[0].text)
+                    if "ONBOARDING_COMPLETE" in recent[0].text:
+                        if not needs_onboarding(user.notes_folder):
+                            print(f"[daemon] Onboarding complete for {user.user_name}")
+                            user.conversation.end()
+                            activity.log("onboarding", f"{user.user_name}: completed")
 
-        elif needs_onboarding(user.notes_folder):
-            print(f"[daemon] {user.user_name}: resuming onboarding")
-            user.conversation.start("onboarding")
-            user.conversation.add_user_message(text)
+            elif needs_onboarding(user.notes_folder):
+                print(f"[daemon] {user.user_name}: resuming onboarding")
+                user.conversation.start("onboarding")
+                user.conversation.add_user_message(text)
 
-            run_operation(
-                llm, user, config, "onboarding",
-                user_message=text, activity=activity,
-            )
+                run_operation(
+                    llm, user, config, "onboarding",
+                    user_message=text, activity=activity,
+                )
 
-            recent = user.channel.get_recent_history(limit=1)
-            if recent and recent[0].is_bot:
-                user.conversation.add_assistant_message(recent[0].text)
-        else:
-            run_operation(
-                llm, user, config, "message_response",
-                user_message=text, activity=activity,
-            )
+                recent = user.channel.get_recent_history(limit=1)
+                if recent and recent[0].is_bot:
+                    user.conversation.add_assistant_message(recent[0].text)
+            else:
+                run_operation(
+                    llm, user, config, "message_response",
+                    user_message=text, activity=activity,
+                )
+        except Exception as e:
+            import traceback
+            print(f"[socket] Error handling message from {channel_id}: {e}")
+            traceback.print_exc()
+            if activity:
+                activity.log("error", f"socket handler: {e}")
 
     async def scheduled_loop():
         """Background loop for automations, cross-tasks."""
@@ -485,80 +492,87 @@ def _run_polling(config, users, llm, activity, args):
         user_index += 1
         last_cycle = now
 
-        print(f"[cycle] {user.user_name} ({user.slack_channel_name}) "
-              f"onboarding={needs_onboarding(user.notes_folder)} "
-              f"conv_active={user.conversation.is_active()}")
+        try:
+            print(f"[cycle] {user.user_name} ({user.slack_channel_name}) "
+                  f"onboarding={needs_onboarding(user.notes_folder)} "
+                  f"conv_active={user.conversation.is_active()}")
 
-        # 1. Check for new messages
-        new_msg = user.channel.check_for_new_message()
-        activity.poll(new_msg is not None,
-                     f"{user.user_name}: {new_msg.text}" if new_msg else user.user_name)
+            # 1. Check for new messages
+            new_msg = user.channel.check_for_new_message()
+            activity.poll(new_msg is not None,
+                         f"{user.user_name}: {new_msg.text}" if new_msg else user.user_name)
 
-        if new_msg:
-            user.channel.post(t("ack", user.language))
+            if new_msg:
+                user.channel.post(t("ack", user.language))
 
-            # Route: active conversation > needs onboarding > normal
-            if user.conversation.is_active():
-                conv_type = user.conversation.get_type()
-                user.conversation.add_user_message(new_msg.text)
-                history = user.conversation.get_history_text()
+                # Route: active conversation > needs onboarding > normal
+                if user.conversation.is_active():
+                    conv_type = user.conversation.get_type()
+                    user.conversation.add_user_message(new_msg.text)
+                    history = user.conversation.get_history_text()
 
-                run_operation(
-                    llm, user, config, conv_type,
-                    user_message=new_msg.text,
-                    activity=activity,
-                    conversation_history=history,
-                )
+                    run_operation(
+                        llm, user, config, conv_type,
+                        user_message=new_msg.text,
+                        activity=activity,
+                        conversation_history=history,
+                    )
 
-                recent = user.channel.get_recent_history(limit=1)
-                if recent and recent[0].is_bot:
-                    user.conversation.add_assistant_message(recent[0].text)
+                    recent = user.channel.get_recent_history(limit=1)
+                    if recent and recent[0].is_bot:
+                        user.conversation.add_assistant_message(recent[0].text)
 
-                    if "ONBOARDING_COMPLETE" in recent[0].text:
-                        if not needs_onboarding(user.notes_folder):
-                            print(f"[daemon] Onboarding complete for {user.user_name}")
-                            user.conversation.end()
-                            activity.log("onboarding", f"{user.user_name}: completed")
-                        else:
-                            print(f"[daemon] {user.user_name}: LLM said complete but files still have placeholders")
+                        if "ONBOARDING_COMPLETE" in recent[0].text:
+                            if not needs_onboarding(user.notes_folder):
+                                print(f"[daemon] Onboarding complete for {user.user_name}")
+                                user.conversation.end()
+                                activity.log("onboarding", f"{user.user_name}: completed")
+                            else:
+                                print(f"[daemon] {user.user_name}: LLM said complete but files still have placeholders")
 
-            elif needs_onboarding(user.notes_folder):
-                print(f"[daemon] {user.user_name}: resuming onboarding")
-                user.conversation.start("onboarding")
-                user.conversation.add_user_message(new_msg.text)
+                elif needs_onboarding(user.notes_folder):
+                    print(f"[daemon] {user.user_name}: resuming onboarding")
+                    user.conversation.start("onboarding")
+                    user.conversation.add_user_message(new_msg.text)
 
-                run_operation(
-                    llm, user, config, "onboarding",
-                    user_message=new_msg.text, activity=activity,
-                )
+                    run_operation(
+                        llm, user, config, "onboarding",
+                        user_message=new_msg.text, activity=activity,
+                    )
 
-                recent = user.channel.get_recent_history(limit=1)
-                if recent and recent[0].is_bot:
-                    user.conversation.add_assistant_message(recent[0].text)
-            else:
-                run_operation(
-                    llm, user, config, "message_response",
-                    user_message=new_msg.text, activity=activity,
-                )
+                    recent = user.channel.get_recent_history(limit=1)
+                    if recent and recent[0].is_bot:
+                        user.conversation.add_assistant_message(recent[0].text)
+                else:
+                    run_operation(
+                        llm, user, config, "message_response",
+                        user_message=new_msg.text, activity=activity,
+                    )
 
-        # 2. Run automations from this user's data dir (includes message-type, formerly reminders)
-        auto_count = check_automations(
-            user.data_dir, user.notes_folder,
-            user.channel, llm, config
-        )
-        if auto_count > 0:
-            activity.automation_fired(f"{user.user_name}: {auto_count} automation(s)", "mixed")
+            # 2. Run automations from this user's data dir (includes message-type, formerly reminders)
+            auto_count = check_automations(
+                user.data_dir, user.notes_folder,
+                user.channel, llm, config
+            )
+            if auto_count > 0:
+                activity.automation_fired(f"{user.user_name}: {auto_count} automation(s)", "mixed")
 
-        # 3. Check cross-tasks
-        if user.cross_tasks:
-            user.cross_tasks.check_and_notify(user.channel)
+            # 3. Check cross-tasks
+            if user.cross_tasks:
+                user.cross_tasks.check_and_notify(user.channel)
 
-        # 4. Run maintenance (each task checks its own schedule)
-        run_maintenance(
-            user.data_dir, user.notes_folder,
-            user.channel, llm, config,
-            lang=user.language, activity=activity,
-        )
+            # 4. Run maintenance (each task checks its own schedule)
+            run_maintenance(
+                user.data_dir, user.notes_folder,
+                user.channel, llm, config,
+                lang=user.language, activity=activity,
+            )
+        except Exception as e:
+            import traceback
+            print(f"[daemon] Error in cycle for {user.user_name}: {e}")
+            traceback.print_exc()
+            if activity:
+                activity.log("error", f"{user.user_name}: {e}")
 
         # For --once mode (testing) — run one cycle per user then exit
         if args.once and user_index >= len(users):

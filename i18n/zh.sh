@@ -142,19 +142,10 @@ MSG_DAEMON_STOPPING="正在停止现有守护进程..."
 MSG_DAEMON_STOPPED="守护进程已停止"
 MSG_DAEMON_RESTARTING="正在使用更新的配置重启守护进程..."
 MSG_DAEMON_MANUAL_REMINDER="守护进程已停止。手动启动："
-MSG_DAEMON_FDA_TITLE="需要「完全磁盘访问权限」"
-MSG_DAEMON_FDA_EXPLAIN="你的笔记文件夹在 iCloud 中。macOS 会阻止后台服务访问 iCloud 文件，除非 Python 解释器拥有「完全磁盘访问权限」。"
-MSG_DAEMON_FDA_STEPS="修复方法："
-MSG_DAEMON_FDA_STEP1="1. 系统设置将打开到 隐私与安全性 → 完全磁盘访问权限"
-MSG_DAEMON_FDA_STEP2="2. 点击「+」添加以下文件："
-MSG_DAEMON_FDA_STEP3="3. 重新运行 ./setup.sh 以重启守护进程"
-MSG_DAEMON_FDA_OPEN="正在打开系统设置..."
-MSG_DAEMON_FDA_SKIP="（如果你愿意，按回车跳过 — 从终端手动运行 ./run.sh 也可以正常工作）"
-
-# 重启
-MSG_RESTART_TITLE="重启守护进程"
-MSG_RESTART_DETECTED="检测到正在运行的守护进程 — 正在用新配置重启..."
-MSG_RESTART_DONE="守护进程已用新配置重启"
+MSG_DAEMON_FDA_TITLE="检测到 iCloud 笔记文件夹"
+MSG_DAEMON_FDA_EXPLAIN="macOS 会阻止后台服务（launchd）访问 iCloud 文件。由于你的笔记在 iCloud 中，守护进程需要从终端运行。"
+MSG_DAEMON_FDA_MANUAL="在终端中运行以下命令启动守护进程："
+MSG_DAEMON_FDA_TIP="提示：将此命令添加到 shell 配置文件（~/.zshrc）中，可在登录时自动启动。"
 
 # 总结
 MSG_SUMMARY_COMPLETE="设置完成！"

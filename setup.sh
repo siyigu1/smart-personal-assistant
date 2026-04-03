@@ -358,6 +358,11 @@ collect_channel() {
         echo "  Current Slack configuration:"
         echo "    Channel: $SLACK_CHANNEL_NAME ($SLACK_CHANNEL_ID)"
         echo "    Bot Token: ${SLACK_BOT_TOKEN:0:10}...${SLACK_BOT_TOKEN: -4}"
+        if [[ -n "$SLACK_APP_TOKEN" ]]; then
+            echo "    App Token: ${SLACK_APP_TOKEN:0:10}...${SLACK_APP_TOKEN: -4} (Socket Mode)"
+        else
+            echo "    App Token: not set (polling mode)"
+        fi
         echo ""
 
         if ! confirm_no "$MSG_CHANNEL_CHANGE"; then
@@ -1085,28 +1090,6 @@ setup_daemon_service() {
     else
         setup_systemd
     fi
-
-    # Verify the daemon is running
-    echo ""
-    echo "  $MSG_DAEMON_VERIFY"
-    sleep 2
-
-    if [[ "$(uname)" == "Darwin" ]]; then
-        if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
-            print_success "$MSG_DAEMON_RUNNING"
-        else
-            print_warning "Daemon may not have started. Check logs:"
-            echo "    cat $HOME/.mission-control.log"
-            echo "    cat $HOME/.mission-control.err"
-        fi
-    else
-        if systemctl --user is-active mission-control &>/dev/null; then
-            print_success "$MSG_DAEMON_RUNNING"
-        else
-            print_warning "Daemon may not have started. Check:"
-            echo "    systemctl --user status mission-control"
-        fi
-    fi
 }
 
 setup_launchd() {
@@ -1118,6 +1101,22 @@ setup_launchd() {
     if [[ ! -f "$venv_python" ]]; then
         print_error "Virtual environment not found at $venv_python"
         echo "    Run install_deps first or use ./run.sh (it creates the venv automatically)"
+        return
+    fi
+
+    # iCloud notes folders require Full Disk Access for background services.
+    # The launchd approach doesn't work reliably with iCloud — skip it and
+    # tell the user to run ./run.sh from Terminal instead.
+    if [[ "$NOTES_FOLDER" == *"Mobile Documents"* ]]; then
+        echo ""
+        print_warning "$MSG_DAEMON_FDA_TITLE"
+        echo ""
+        echo "  $MSG_DAEMON_FDA_EXPLAIN"
+        echo ""
+        echo "  $MSG_DAEMON_FDA_MANUAL"
+        echo "    cd $SCRIPT_DIR && ./run.sh &"
+        echo ""
+        echo "  $MSG_DAEMON_FDA_TIP"
         return
     fi
 
@@ -1159,42 +1158,14 @@ setup_launchd() {
 </plist>
 PLIST
 
-    # Check if notes folder is in iCloud — if so, test that the venv Python can access it
-    if [[ "$NOTES_FOLDER" == *"Mobile Documents"* ]]; then
-        if ! "$venv_python" -c "open('$NOTES_FOLDER/.mc-config.json')" 2>/dev/null; then
-            echo ""
-            print_warning "$MSG_DAEMON_FDA_TITLE"
-            echo ""
-            echo "  $MSG_DAEMON_FDA_EXPLAIN"
-            echo ""
-            echo "  $MSG_DAEMON_FDA_STEPS"
-            echo "  $MSG_DAEMON_FDA_STEP1"
-            echo "  $MSG_DAEMON_FDA_STEP2"
-            echo "    $venv_python"
-            echo "  $MSG_DAEMON_FDA_STEP3"
-            echo ""
-            echo "  $MSG_DAEMON_FDA_SKIP"
-            echo ""
-            echo "  $MSG_DAEMON_FDA_OPEN"
-            open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
-            read -r -p "  Press Enter after granting access (or to skip)... "
-            echo ""
-
-            # Re-test after user action
-            if "$venv_python" -c "open('$NOTES_FOLDER/.mc-config.json')" 2>/dev/null; then
-                print_success "Full Disk Access confirmed"
-            else
-                print_warning "Python still cannot access iCloud files. The daemon may not work as a background service."
-                echo "    You can still run it manually: ./run.sh"
-            fi
-        fi
-    fi
+    # Clear old error log so we only show fresh errors from this launch
+    : > "$HOME/.mission-control.err" 2>/dev/null || true
 
     launchctl unload "$plist_file" 2>/dev/null || true
     launchctl load "$plist_file" 2>/dev/null || true
 
     # Wait and verify it actually started
-    sleep 2
+    sleep 3
     if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
         # Check if it exited immediately (exit code != 0 means crash)
         local exit_code
@@ -1247,38 +1218,6 @@ SERVICE
     print_success "systemd service created and started"
     echo "    Status: systemctl --user status mission-control"
     echo "    Logs: journalctl --user -u mission-control -f"
-}
-
-# ─── Restart Running Daemon ──────────────────────────────────────
-
-restart_if_running() {
-    if [[ "$SETUP_MODE" != "daemon" ]]; then return; fi
-
-    local was_running=false
-
-    if [[ "$(uname)" == "Darwin" ]]; then
-        if launchctl list 2>/dev/null | grep -q "com.mission-control.daemon"; then
-            was_running=true
-            print_step "$MSG_RESTART_TITLE"
-            echo "  $MSG_RESTART_DETECTED"
-            launchctl stop com.mission-control.daemon 2>/dev/null || true
-            sleep 1
-            launchctl start com.mission-control.daemon 2>/dev/null || true
-            print_success "$MSG_RESTART_DONE"
-        fi
-    else
-        if systemctl --user is-active mission-control &>/dev/null; then
-            was_running=true
-            print_step "$MSG_RESTART_TITLE"
-            echo "  $MSG_RESTART_DETECTED"
-            systemctl --user restart mission-control 2>/dev/null || true
-            print_success "$MSG_RESTART_DONE"
-        fi
-    fi
-
-    if [[ "$was_running" == true ]]; then
-        SKIP_DAEMON_SETUP=true
-    fi
 }
 
 SKIP_DAEMON_SETUP=false
@@ -1339,7 +1278,6 @@ main() {
     test_slack_connection
     create_cowork_tasks
     save_config
-    restart_if_running
     setup_daemon_service
     print_summary
 }
